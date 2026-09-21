@@ -134,6 +134,13 @@ func TestNotificationChannelAndDeliveryEndpoints(t *testing.T) {
 		t.Fatalf("list notification channels response = %d %s", response.Code, response.Body.String())
 	}
 
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels/ops-webhook/test", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("failed notification test status = %d body = %s", response.Code, response.Body.String())
+	}
+
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit-events", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
@@ -332,6 +339,9 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &evaluated); err != nil || len(evaluated.Items) == 0 {
 		t.Fatalf("evaluate alerts body = %s", response.Body.String())
+	}
+	if evaluated.Items[0].DeepLink == "" || evaluated.Items[0].SourceURL == "" || evaluated.Items[0].Freshness == "" {
+		t.Fatalf("alert context is incomplete: %#v", evaluated.Items[0])
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/alerts/"+evaluated.Items[0].ID, nil)
 	response = httptest.NewRecorder()

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,19 @@ import (
 	"github.com/MamreTek/cert-harbor/internal/security"
 )
 
+type notificationMemoryBackend struct {
+	payload []byte
+}
+
+func (b *notificationMemoryBackend) LoadState(string) ([]byte, error) {
+	return append([]byte(nil), b.payload...), nil
+}
+
+func (b *notificationMemoryBackend) SaveState(_ string, payload []byte) error {
+	b.payload = append([]byte(nil), payload...)
+	return nil
+}
+
 func TestWebhookDeliverySignsAndRetries(t *testing.T) {
 	box, err := security.NewSecretBox("notification-key")
 	if err != nil {
@@ -26,8 +40,10 @@ func TestWebhookDeliverySignsAndRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	attempts := 0
+	var payload []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
+		payload, _ = io.ReadAll(r.Body)
 		if !strings.HasPrefix(r.Header.Get("X-CertHarbor-Signature"), "sha256=") {
 			t.Error("missing webhook signature")
 		}
@@ -48,6 +64,20 @@ func TestWebhookDeliverySignsAndRetries(t *testing.T) {
 	delivery, err := service.Test(context.Background(), "webhook")
 	if err != nil || delivery.Status != "delivered" || delivery.Attempts != 2 {
 		t.Fatalf("delivery = %#v, err = %v", delivery, err)
+	}
+	if !strings.Contains(string(payload), `"deep_link":"/alerts/test-alert"`) {
+		t.Fatalf("webhook payload missing default deep link: %s", payload)
+	}
+	expiresAt, _ := time.Parse(time.RFC3339, "2026-10-03T00:00:00Z")
+	contextAlert := alerts.Alert{ID: "context-alert", AssetName: "example.com", AssetKind: "certificate", Provider: "cloudflare", State: alerts.StateOpen, Severity: "high", ExpiresAt: &expiresAt, SourceURL: "https://provider.example/certificate", Freshness: "stale", DeepLink: "/alerts/context-alert"}
+	contextDelivery := service.Dispatch(context.Background(), contextAlert)
+	if len(contextDelivery) != 1 || contextDelivery[0].Status != "delivered" {
+		t.Fatalf("context delivery = %#v", contextDelivery)
+	}
+	for _, expected := range []string{`"deep_link":"/alerts/context-alert"`, `"source_url":"https://provider.example/certificate"`, `"freshness":"stale"`, `"expires_at":"2026-10-03T00:00:00Z"`} {
+		if !strings.Contains(string(payload), expected) {
+			t.Fatalf("webhook payload missing %q: %s", expected, payload)
+		}
 	}
 }
 
@@ -115,6 +145,24 @@ func TestOpenServiceRestoresChannelsAndDeliveries(t *testing.T) {
 	}
 	if len(reopened.Deliveries()) != 1 || reopened.Deliveries()[0].ID != deliveries[0].ID {
 		t.Fatalf("unexpected restored deliveries = %#v", reopened.Deliveries())
+	}
+}
+
+func TestOpenServiceUsesSharedStateBackend(t *testing.T) {
+	backend := &notificationMemoryBackend{}
+	service, err := OpenService(nil, "", backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AddChannel(Channel{ID: "ops", Name: "Ops", Kind: KindWebhook, Endpoint: "https://example.test", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenService(nil, "", backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channels := reopened.Channels(); len(channels) != 1 || channels[0].ID != "ops" {
+		t.Fatalf("shared backend did not restore notification channel: %#v", channels)
 	}
 }
 

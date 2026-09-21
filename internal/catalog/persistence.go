@@ -33,6 +33,14 @@ type persistedConnection struct {
 	CredentialsCiphertext string                 `json:"credentials_ciphertext,omitempty"`
 }
 
+// StateBackend stores durable subsystem snapshots alongside the catalog.
+// PostgreSQL deployments use this backend for alert and notification state;
+// local development can continue using each subsystem's JSON fallback.
+type StateBackend interface {
+	LoadState(key string) ([]byte, error)
+	SaveState(key string, payload []byte) error
+}
+
 //go:embed migrations/001_catalog_snapshot.sql
 var catalogSchema []byte
 
@@ -215,6 +223,34 @@ func readPostgresSnapshot(db *postgresDatabase) ([]byte, error) {
 		return nil, fmt.Errorf("read postgres catalog snapshot: %w", err)
 	}
 	return payload, nil
+}
+
+func (db *postgresDatabase) LoadState(key string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var payload []byte
+	err := db.QueryRowContext(ctx, `SELECT payload FROM cert_harbor_state_snapshots WHERE state_key = $1`, key).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read postgres state snapshot %q: %w", key, err)
+	}
+	return payload, nil
+}
+
+func (db *postgresDatabase) SaveState(key string, payload []byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := db.ExecContext(ctx, `
+INSERT INTO cert_harbor_state_snapshots (state_key, payload, updated_at)
+VALUES ($1, $2::jsonb, $3)
+ON CONFLICT (state_key) DO UPDATE
+SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`, key, payload, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("write postgres state snapshot %q: %w", key, err)
+	}
+	return nil
 }
 
 func writePostgresSnapshot(db *postgresDatabase, payload []byte) error {

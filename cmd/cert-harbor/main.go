@@ -14,6 +14,7 @@ import (
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
 	"github.com/MamreTek/cert-harbor/internal/httpapi"
+	observability "github.com/MamreTek/cert-harbor/internal/metrics"
 	"github.com/MamreTek/cert-harbor/internal/notifications"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
@@ -52,11 +53,13 @@ func main() {
 		log.Fatal("CERT_HARBOR_ENCRYPTION_KEY is required when rotating secrets")
 	}
 	syncService := syncer.New(store, adapters, secrets)
-	alertEngine, err := alerting.OpenEngine(store, cfg.AlertsPath)
+	metrics := observability.New()
+	syncService.SetMetrics(metrics)
+	alertEngine, err := alerting.OpenEngine(store, cfg.AlertsPath, store.StateBackend())
 	if err != nil {
 		log.Fatalf("open alert state: %v", err)
 	}
-	notificationService, err := notifications.OpenService(secrets, cfg.NotificationsPath)
+	notificationService, err := notifications.OpenService(secrets, cfg.NotificationsPath, store.StateBackend())
 	if err != nil {
 		log.Fatalf("open notification state: %v", err)
 	}
@@ -97,24 +100,24 @@ func main() {
 			}
 			_ = notificationService.Queue(alert)
 		}
-		_ = notificationService.DeliverOutbox(cycleCtx)
+		recordNotificationDeliveries(store, notificationService.DeliverOutbox(cycleCtx))
 	}
 	go scheduler.New(store, syncService, monitorCycle).Run(ctx, cfg.SyncInterval)
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
-		_ = notificationService.DeliverOutbox(ctx)
+		recordNotificationDeliveries(store, notificationService.DeliverOutbox(ctx))
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = notificationService.DeliverOutbox(ctx)
+				recordNotificationDeliveries(store, notificationService.DeliverOutbox(ctx))
 			}
 		}
 	}()
 
-	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.NewServer(cfg, httpapi.Dependencies{Store: store, Syncer: syncService, Alerts: alertEngine, Secrets: secrets, Notifications: notificationService}).Handler()}
+	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.NewServer(cfg, httpapi.Dependencies{Store: store, Syncer: syncService, Alerts: alertEngine, Secrets: secrets, Notifications: notificationService, Metrics: metrics}).Handler()}
 	go func() {
 		<-ctx.Done()
 		_ = server.Shutdown(context.Background())
@@ -122,5 +125,19 @@ func main() {
 	log.Printf("CertHarbor listening on %s", cfg.Addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
+	}
+}
+
+func recordNotificationDeliveries(store *catalog.Store, deliveries []notifications.Delivery) {
+	for _, delivery := range deliveries {
+		_ = store.AppendAudit(catalog.AuditEvent{
+			Actor:         "system",
+			Action:        "notification.delivery",
+			ObjectType:    "notification_delivery",
+			ObjectID:      delivery.ID,
+			Outcome:       delivery.Status,
+			CorrelationID: "delivery-" + delivery.ID,
+			CreatedAt:     time.Now().UTC(),
+		})
 	}
 }

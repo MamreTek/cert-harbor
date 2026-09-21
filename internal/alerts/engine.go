@@ -46,6 +46,9 @@ type Alert struct {
 	Severity      string     `json:"severity"`
 	DaysRemaining *int       `json:"days_remaining,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	SourceURL     string     `json:"source_url,omitempty"`
+	Freshness     string     `json:"freshness,omitempty"`
+	DeepLink      string     `json:"deep_link"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	Actor         string     `json:"actor,omitempty"`
 	Note          string     `json:"note,omitempty"`
@@ -68,6 +71,7 @@ type Engine struct {
 	alerts   map[string]Alert
 	events   []Event
 	filePath string
+	backend  catalog.StateBackend
 	now      func() time.Time
 }
 
@@ -91,18 +95,41 @@ func NewEngine(store *catalog.Store) *Engine {
 
 // OpenEngine restores alert rules, states, and transition events from an
 // atomically written snapshot. An absent path or file starts with defaults.
-func OpenEngine(store *catalog.Store, path string) (*Engine, error) {
+func OpenEngine(store *catalog.Store, path string, backends ...catalog.StateBackend) (*Engine, error) {
 	engine := NewEngine(store)
 	engine.filePath = path
-	if path == "" {
-		return engine, nil
+	if len(backends) > 0 {
+		engine.backend = backends[0]
 	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return engine, nil
+	var data []byte
+	migratedFromFile := false
+	if engine.backend != nil {
+		loaded, err := engine.backend.LoadState("alerts")
+		if err != nil {
+			return nil, err
+		}
+		data = loaded
+		if len(data) == 0 && path != "" {
+			legacyData, legacyErr := os.ReadFile(path)
+			if legacyErr == nil && len(legacyData) > 0 {
+				data = legacyData
+				migratedFromFile = true
+			} else if legacyErr != nil && !errors.Is(legacyErr, os.ErrNotExist) {
+				return nil, legacyErr
+			}
+		}
+	} else if path != "" {
+		loaded, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return engine, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		data = loaded
 	}
-	if err != nil {
-		return nil, err
+	if len(data) == 0 {
+		return engine, nil
 	}
 	var snapshot struct {
 		Version int              `json:"version"`
@@ -120,6 +147,11 @@ func OpenEngine(store *catalog.Store, path string) (*Engine, error) {
 		engine.alerts = snapshot.Alerts
 	}
 	engine.events = snapshot.Events
+	if migratedFromFile {
+		if err := engine.persistLocked(); err != nil {
+			return nil, fmt.Errorf("migrate legacy alert state: %w", err)
+		}
+	}
 	return engine, nil
 }
 
@@ -142,7 +174,7 @@ func (e *Engine) Evaluate() []Alert {
 		for _, connection := range e.catalog.ListConnections() {
 			if connection.Status == "unhealthy" || (connection.LastSyncAt != nil && now.Sub(*connection.LastSyncAt) > time.Duration(rule.StaleAfterHours)*time.Hour) {
 				id := rule.ID + ":" + connection.ID + ":sync-stale"
-				e.upsertAlert(Alert{ID: id, RuleID: rule.ID, AssetID: connection.ID, AssetKind: "connection", AssetName: connection.Name, Provider: string(connection.Provider), State: StateOpen, Severity: "high", UpdatedAt: now})
+				e.upsertAlert(Alert{ID: id, RuleID: rule.ID, AssetID: connection.ID, AssetKind: "connection", AssetName: connection.Name, Provider: string(connection.Provider), State: StateOpen, Severity: "high", Freshness: "stale", UpdatedAt: now})
 			} else {
 				e.resolveByAsset(rule.ID, connection.ID, "connection", now)
 			}
@@ -294,9 +326,6 @@ func (e *Engine) Transition(id, state, actor, note string) (Alert, error) {
 }
 
 func (e *Engine) persistLocked() error {
-	if e.filePath == "" {
-		return nil
-	}
 	snapshot := struct {
 		Version int              `json:"version"`
 		Rules   map[string]Rule  `json:"rules"`
@@ -306,6 +335,12 @@ func (e *Engine) persistLocked() error {
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		return err
+	}
+	if e.backend != nil {
+		return e.backend.SaveState("alerts", data)
+	}
+	if e.filePath == "" {
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(e.filePath), 0o700); err != nil {
 		return err
@@ -322,6 +357,9 @@ func (e *Engine) persistLocked() error {
 }
 
 func (e *Engine) upsertAlert(alert Alert) {
+	if alert.DeepLink == "" {
+		alert.DeepLink = "/alerts/" + alert.ID
+	}
 	if existing, ok := e.alerts[alert.ID]; ok {
 		if existing.State == StateSuppressed {
 			return
@@ -382,7 +420,7 @@ func evaluateDomain(e *Engine, rule Rule, item domain.Domain, now time.Time) {
 		return
 	}
 	e.closeOtherStates(rule.ID, item.ID, "domain", state, now)
-	e.upsertAlert(Alert{ID: rule.ID + ":" + item.ID + ":" + state, RuleID: rule.ID, AssetID: item.ID, AssetKind: "domain", AssetName: item.Name, Provider: item.Provider, State: StateOpen, Severity: severity, DaysRemaining: days, ExpiresAt: item.ExpiresAt, UpdatedAt: now})
+	e.upsertAlert(Alert{ID: rule.ID + ":" + item.ID + ":" + state, RuleID: rule.ID, AssetID: item.ID, AssetKind: "domain", AssetName: item.Name, Provider: item.Provider, State: StateOpen, Severity: severity, DaysRemaining: days, ExpiresAt: item.ExpiresAt, SourceURL: item.SourceURL, Freshness: assetFreshness(item.Stale), UpdatedAt: now})
 }
 
 func evaluateCertificate(e *Engine, rule Rule, item domain.Certificate, now time.Time) {
@@ -400,7 +438,14 @@ func evaluateCertificate(e *Engine, rule Rule, item domain.Certificate, now time
 		return
 	}
 	e.closeOtherStates(rule.ID, item.ID, "certificate", state, now)
-	e.upsertAlert(Alert{ID: rule.ID + ":" + item.ID + ":" + state, RuleID: rule.ID, AssetID: item.ID, AssetKind: "certificate", AssetName: item.CommonName, Provider: item.Provider, State: StateOpen, Severity: severity, DaysRemaining: days, ExpiresAt: &expiresAt, UpdatedAt: now})
+	e.upsertAlert(Alert{ID: rule.ID + ":" + item.ID + ":" + state, RuleID: rule.ID, AssetID: item.ID, AssetKind: "certificate", AssetName: item.CommonName, Provider: item.Provider, State: StateOpen, Severity: severity, DaysRemaining: days, ExpiresAt: &expiresAt, SourceURL: item.SourceURL, Freshness: assetFreshness(item.Stale), UpdatedAt: now})
+}
+
+func assetFreshness(stale bool) string {
+	if stale {
+		return "stale"
+	}
+	return "current"
 }
 
 func certificateStatusState(status string) (string, string) {

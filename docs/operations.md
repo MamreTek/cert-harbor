@@ -2,7 +2,7 @@
 
 ## Persistence modes
 
-Local `go run ./cmd/cert-harbor` uses atomic JSON snapshots by default. Docker Compose starts PostgreSQL 16 and sets `CERT_HARBOR_DATABASE_URL`, so the catalog is restored from PostgreSQL and catalog mutations are written there. Alert and notification state remains in the protected `/app/data` volume because those services have their own durable snapshots and outbox.
+Local `go run ./cmd/cert-harbor` uses atomic JSON snapshots by default. Docker Compose starts PostgreSQL 16 and sets `CERT_HARBOR_DATABASE_URL`, so the catalog, alert rules/events, and notification channels/deliveries/outbox are restored from PostgreSQL state snapshots and mutations are written there. A legacy alert or notification JSON file is migrated into PostgreSQL the first time the database-backed deployment starts; the protected `/app/data` volume remains available for local fallback and migration input.
 
 For production, set `POSTGRES_PASSWORD` and `CERT_HARBOR_DATABASE_URL` through a secret manager or deployment secret. The Compose default derives the database URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; set `CERT_HARBOR_DATABASE_URL` explicitly when the password contains URL-reserved characters. Do not commit those values to `.env` or expose PostgreSQL publicly.
 
@@ -12,7 +12,7 @@ Set the replacement value in `CERT_HARBOR_ENCRYPTION_KEY` and the previous value
 
 ## Backup and recovery
 
-Back up the PostgreSQL catalog and the `/app/data` volume together. The encryption key is required to decrypt provider and notification credentials after restore.
+Back up the PostgreSQL catalog/state snapshots and the `/app/data` volume together. The volume is required when a deployment still has legacy JSON fallback or migration files. The encryption key is required to decrypt provider and notification credentials after restore.
 
 ```sh
 docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" > cert-harbor-catalog.sql

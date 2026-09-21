@@ -124,6 +124,15 @@ func (s *Store) Close() error {
 	return s.database.Close()
 }
 
+// StateBackend returns the shared durable backend when the store uses
+// PostgreSQL. It returns nil for file-backed or in-memory stores.
+func (s *Store) StateBackend() StateBackend {
+	if db, ok := s.database.(*postgresDatabase); ok {
+		return db
+	}
+	return nil
+}
+
 func (s *Store) Workspace() Workspace {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

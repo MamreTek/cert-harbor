@@ -7,7 +7,7 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { Alert, Button, Card, Col, Input, Layout, Menu, Modal, Row, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Input, Layout, Menu, Modal, Row, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd'
 
 const { Header, Sider, Content } = Layout
 
@@ -45,10 +45,12 @@ export function App({ fetcher = defaultFetcher }) {
   const [loading, setLoading] = useState(Boolean(fetcher))
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
-  const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', owner: '', environment: '', tag: '', expiry_state: '', stale: '' })
+  const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', owner: '', environment: '', tag: '', expiry_state: '', stale: '', sort: '', order: '' })
   const [modalKind, setModalKind] = useState('')
   const [modalValues, setModalValues] = useState({})
   const [editingId, setEditingId] = useState('')
+  const [detailItem, setDetailItem] = useState(null)
+  const [detailKind, setDetailKind] = useState('')
   const [authToken, setAuthToken] = useState(() => {
     try { return globalThis.localStorage?.getItem('cert_harbor_token') || '' } catch { return '' }
   })
@@ -145,6 +147,11 @@ export function App({ fetcher = defaultFetcher }) {
     setEditingId('')
   }
 
+  const openDetail = (kind, item) => {
+    setDetailKind(kind)
+    setDetailItem(item)
+  }
+
   const submitModal = async () => {
     if (!fetcher) return
     setError('')
@@ -220,6 +227,8 @@ export function App({ fetcher = defaultFetcher }) {
     <Input placeholder="Tag" allowClear value={inventoryFilters.tag} onChange={(event) => setInventoryFilters((current) => ({ ...current, tag: event.target.value }))} />
     <Select allowClear placeholder="Expiry state" style={{ minWidth: 150 }} value={inventoryFilters.expiry_state || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, expiry_state: value || '' }))} options={['healthy', 'expiring', 'expired', 'stale', 'unknown'].map((value) => ({ value, label: value }))} />
     <Select allowClear placeholder="Freshness" style={{ minWidth: 130 }} value={inventoryFilters.stale || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, stale: value || '' }))} options={[{ value: 'false', label: 'Current' }, { value: 'true', label: 'Stale' }]} />
+    <Select allowClear placeholder="Sort by" style={{ minWidth: 145 }} value={inventoryFilters.sort || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, sort: value || '' }))} options={[{ value: 'expires_at', label: 'Expiration' }, { value: 'last_seen_at', label: 'Freshness' }, { value: 'name', label: 'Name' }]} />
+    <Select allowClear placeholder="Order" style={{ minWidth: 110 }} value={inventoryFilters.order || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, order: value || '' }))} options={[{ value: 'asc', label: 'Ascending' }, { value: 'desc', label: 'Descending' }]} />
   </Space>
 
   const pageTitle = {
@@ -250,6 +259,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Nameservers', dataIndex: 'nameservers', key: 'nameservers', render: (value) => (value ?? []).join(', ') || 'Unknown' },
       { title: 'Last seen', dataIndex: 'last_seen_at', key: 'last_seen_at' },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
+      { title: 'Details', render: (_, item) => <Button size="small" onClick={() => openDetail('Domain', item)}>View</Button> },
     ]} />
   </Card>
 
@@ -262,6 +272,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Region', dataIndex: 'region', key: 'region', render: (value) => value || '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
+      { title: 'Details', render: (_, item) => <Button size="small" onClick={() => openDetail('Certificate', item)}>View</Button> },
     ]} />
   </Card>
 
@@ -343,6 +354,26 @@ export function App({ fetcher = defaultFetcher }) {
         {modalKind === 'member' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Email" disabled={Boolean(editingId)} value={modalValues.email || ''} onChange={(event) => updateModalValue('email', event.target.value)} /><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Role" value={modalValues.role} style={{ width: '100%' }} onChange={(value) => updateModalValue('role', value)} options={[{ value: 'viewer', label: 'Viewer' }, { value: 'administrator', label: 'Administrator' }]} /><Select placeholder="Status" value={modalValues.status} style={{ width: '100%' }} onChange={(value) => updateModalValue('status', value)} options={[{ value: 'active', label: 'Active' }, { value: 'invited', label: 'Invited' }, { value: 'suspended', label: 'Suspended' }]} /></Space>}
         {modalKind === 'channel' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Kind" disabled={Boolean(editingId)} value={modalValues.kind} style={{ width: '100%' }} onChange={(value) => updateModalValue('kind', value)} options={[{ value: 'webhook', label: 'Webhook' }, { value: 'email', label: 'Email' }]} /><Input placeholder="Endpoint" value={modalValues.endpoint} onChange={(event) => updateModalValue('endpoint', event.target.value)} /><Select placeholder="Enabled" value={modalValues.enabled} style={{ width: '100%' }} onChange={(value) => updateModalValue('enabled', value)} options={[{ value: true, label: 'Enabled' }, { value: false, label: 'Disabled' }]} /><Input.Password placeholder="Signing secret (optional; never returned when editing)" value={modalValues.signing_secret || ''} onChange={(event) => updateModalValue('signing_secret', event.target.value)} /><Input.TextArea placeholder='Credentials JSON (email username/password/from/to)' value={modalValues.credentials || ''} onChange={(event) => updateModalValue('credentials', event.target.value)} /></Space>}
         {modalKind === 'rule' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Input placeholder="Domain thresholds: 90,30,14,7,3" value={modalValues.domain_thresholds} onChange={(event) => updateModalValue('domain_thresholds', event.target.value)} /><Input placeholder="Certificate thresholds: 90,30,14,7,3" value={modalValues.certificate_thresholds} onChange={(event) => updateModalValue('certificate_thresholds', event.target.value)} /><Input placeholder="Stale after hours" value={modalValues.stale_after_hours} onChange={(event) => updateModalValue('stale_after_hours', event.target.value)} /><Input placeholder="Tags (comma-separated, optional)" value={modalValues.tags} onChange={(event) => updateModalValue('tags', event.target.value)} /></Space>}
+      </Modal>
+      <Modal open={Boolean(detailItem)} title={`${detailKind} details`} footer={null} onCancel={() => { setDetailItem(null); setDetailKind('') }}>
+        {detailItem && <Descriptions bordered column={1} size="small">
+          <Descriptions.Item label="Name">{detailItem.name || detailItem.common_name}</Descriptions.Item>
+          <Descriptions.Item label="Provider">{detailItem.provider}</Descriptions.Item>
+          <Descriptions.Item label="Source ID">{detailItem.source_id}</Descriptions.Item>
+          <Descriptions.Item label="Owner / team">{detailItem.owner || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Environment">{detailItem.environment || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Tags">{(detailItem.tags || []).join(', ') || 'None'}</Descriptions.Item>
+          <Descriptions.Item label="Status">{detailItem.status || 'Unknown'}</Descriptions.Item>
+          {detailKind === 'Certificate' && <>
+            <Descriptions.Item label="Issuer">{detailItem.issuer || 'Unknown'}</Descriptions.Item>
+            <Descriptions.Item label="SANs">{(detailItem.sans || []).join(', ') || 'None'}</Descriptions.Item>
+            <Descriptions.Item label="Valid from">{detailItem.valid_from || 'Unknown'}</Descriptions.Item>
+            <Descriptions.Item label="Valid to">{detailItem.valid_to || 'Unknown'}</Descriptions.Item>
+            <Descriptions.Item label="Region">{detailItem.region || 'Unknown'}</Descriptions.Item>
+          </>}
+          <Descriptions.Item label="Last seen">{detailItem.last_seen_at}</Descriptions.Item>
+          <Descriptions.Item label="Source">{detailItem.source_url ? <a href={detailItem.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>
+        </Descriptions>}
       </Modal>
     </Layout>
   )

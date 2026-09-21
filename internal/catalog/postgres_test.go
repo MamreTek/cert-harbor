@@ -24,6 +24,15 @@ func TestPostgresCatalogRoundTrip(t *testing.T) {
 		_ = first.Close()
 		t.Fatal(err)
 	}
+	backend := first.StateBackend()
+	if backend == nil {
+		_ = first.Close()
+		t.Fatal("postgres store did not expose a shared state backend")
+	}
+	if err := backend.SaveState("integration-test", []byte(`{"state":"durable"}`)); err != nil {
+		_ = first.Close()
+		t.Fatal(err)
+	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -44,5 +53,9 @@ func TestPostgresCatalogRoundTrip(t *testing.T) {
 	}
 	if events := second.ListAuditEvents(); len(events) != 1 || events[0].Action != "postgres.round_trip" {
 		t.Fatalf("restored audit events = %#v", events)
+	}
+	state, err := second.StateBackend().LoadState("integration-test")
+	if err != nil || string(state) != `{"state":"durable"}` {
+		t.Fatalf("restored shared state = %s err=%v", state, err)
 	}
 }

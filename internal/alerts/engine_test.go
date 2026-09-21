@@ -3,6 +3,7 @@ package alerts
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +11,27 @@ import (
 	"github.com/MamreTek/cert-harbor/internal/domain"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 )
+
+type memoryStateBackend struct {
+	mu     sync.Mutex
+	values map[string][]byte
+}
+
+func (b *memoryStateBackend) LoadState(key string) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.values[key]...), nil
+}
+
+func (b *memoryStateBackend) SaveState(key string, payload []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.values == nil {
+		b.values = make(map[string][]byte)
+	}
+	b.values[key] = append([]byte(nil), payload...)
+	return nil
+}
 
 func TestEvaluateCreatesStableExpiringAlertAndTransitions(t *testing.T) {
 	store := catalog.NewStore()
@@ -67,6 +89,25 @@ func TestOpenEngineRestoresAlertStateAndEvents(t *testing.T) {
 	}
 	if len(reopened.Rules()) != 1 || len(reopened.Alerts()) != 1 || reopened.Alerts()[0].State != StateAcknowledged || len(reopened.Events()) != 1 {
 		t.Fatalf("unexpected restored state: rules=%#v alerts=%#v events=%#v", reopened.Rules(), reopened.Alerts(), reopened.Events())
+	}
+}
+
+func TestOpenEngineUsesSharedStateBackend(t *testing.T) {
+	store := catalog.NewStore()
+	backend := &memoryStateBackend{}
+	engine, err := OpenEngine(store, "", backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.AddRule(Rule{ID: "backend-rule", Name: "Backend rule", Enabled: true, DomainThresholds: []int{30}, CertificateThresholds: []int{30}, StaleAfterHours: 24}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenEngine(store, "", backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reopened.GetRule("backend-rule"); !ok {
+		t.Fatalf("shared backend did not restore alert rule: %#v", reopened.Rules())
 	}
 }
 

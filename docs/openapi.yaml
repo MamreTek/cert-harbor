@@ -154,11 +154,6 @@ paths:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
       responses: {"200": {description: Paginated delivery history}}
-  /api/v1/members:
-    get:
-      responses: {"200": {description: Workspace members}}
-    post:
-      responses: {"201": {description: Invited}}
   /api/v1/audit-events:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]

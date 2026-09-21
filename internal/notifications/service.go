@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/MamreTek/cert-harbor/internal/alerts"
+	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/security"
 )
 
@@ -79,6 +80,7 @@ type Service struct {
 	outbox     []outboxItem
 	nextID     uint64
 	filePath   string
+	backend    catalog.StateBackend
 	secrets    *security.SecretBox
 	client     *http.Client
 	now        func() time.Time
@@ -90,18 +92,41 @@ func NewService(secrets *security.SecretBox) *Service {
 
 // OpenService restores notification channels and delivery history from an
 // atomically written snapshot. An absent path or file starts empty.
-func OpenService(secrets *security.SecretBox, path string) (*Service, error) {
+func OpenService(secrets *security.SecretBox, path string, backends ...catalog.StateBackend) (*Service, error) {
 	service := NewService(secrets)
 	service.filePath = path
-	if path == "" {
-		return service, nil
+	if len(backends) > 0 {
+		service.backend = backends[0]
 	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return service, nil
+	var data []byte
+	migratedFromFile := false
+	if service.backend != nil {
+		loaded, err := service.backend.LoadState("notifications")
+		if err != nil {
+			return nil, err
+		}
+		data = loaded
+		if len(data) == 0 && path != "" {
+			legacyData, legacyErr := os.ReadFile(path)
+			if legacyErr == nil && len(legacyData) > 0 {
+				data = legacyData
+				migratedFromFile = true
+			} else if legacyErr != nil && !errors.Is(legacyErr, os.ErrNotExist) {
+				return nil, legacyErr
+			}
+		}
+	} else if path != "" {
+		loaded, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return service, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		data = loaded
 	}
-	if err != nil {
-		return nil, err
+	if len(data) == 0 {
+		return service, nil
 	}
 	var snapshot struct {
 		Version    int                         `json:"version"`
@@ -136,6 +161,11 @@ func OpenService(secrets *security.SecretBox, path string) (*Service, error) {
 			if id, parseErr := strconv.ParseUint(item.ID[len("outbox-"):], 10, 64); parseErr == nil && id > service.nextID {
 				service.nextID = id
 			}
+		}
+	}
+	if migratedFromFile {
+		if err := service.persistLocked(); err != nil {
+			return nil, fmt.Errorf("migrate legacy notification state: %w", err)
 		}
 	}
 	return service, nil
@@ -389,7 +419,17 @@ func (s *Service) dispatchChannel(ctx context.Context, channelID string, alert a
 	case KindWebhook:
 		err = s.sendWebhook(ctx, channel, alert, &delivery)
 	case KindEmail:
-		err = s.sendEmail(ctx, channel, alert, &delivery)
+		for attempt := 1; attempt <= 3; attempt++ {
+			delivery.Attempts = attempt
+			err = s.sendEmail(ctx, channel, alert, &delivery)
+			if err == nil || attempt == 3 {
+				break
+			}
+			if waitErr := retryWait(ctx, attempt); waitErr != nil {
+				err = waitErr
+				break
+			}
+		}
 	default:
 		err = errors.New("unsupported notification channel")
 	}
@@ -451,8 +491,7 @@ func (s *Service) sendEmail(ctx context.Context, channel Channel, alert alerts.A
 	if username := credentials["username"]; username != "" {
 		auth = smtp.PlainAuth("", username, credentials["password"], host)
 	}
-	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: CertHarbor alert: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAlert %s\nAsset: %s (%s)\nProvider: %s\nState: %s\nSeverity: %s\nDays remaining: %s\n", from, strings.Join(recipients, ", "), alert.AssetName, alert.ID, alert.AssetName, alert.AssetKind, alert.Provider, alert.State, alert.Severity, formatDays(alert.DaysRemaining))
-	delivery.Attempts = 1
+	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: CertHarbor alert: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAlert %s\nAsset: %s (%s)\nProvider: %s\nState: %s\nSeverity: %s\nDays remaining: %s\nExpires at: %s\nFreshness: %s\nSource: %s\nDeep link: %s\n", from, strings.Join(recipients, ", "), alert.AssetName, alert.ID, alert.AssetName, alert.AssetKind, alert.Provider, alert.State, alert.Severity, formatDays(alert.DaysRemaining), formatTime(alert.ExpiresAt), valueOrUnknown(alert.Freshness), valueOrUnknown(alert.SourceURL), valueOrUnknown(alert.DeepLink))
 	if err := sendSMTP(ctx, endpoint.Scheme == "smtps", server, host, auth, from, recipients, []byte(body)); err != nil {
 		return fmt.Errorf("send SMTP email: %w", err)
 	}
@@ -509,9 +548,6 @@ func formatDays(days *int) string {
 }
 
 func (s *Service) persistLocked() error {
-	if s.filePath == "" {
-		return nil
-	}
 	snapshot := struct {
 		Version    int                         `json:"version"`
 		Channels   map[string]persistedChannel `json:"channels"`
@@ -529,6 +565,12 @@ func (s *Service) persistLocked() error {
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		return err
+	}
+	if s.backend != nil {
+		return s.backend.SaveState("notifications", data)
+	}
+	if s.filePath == "" {
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.filePath), 0o700); err != nil {
 		return err
@@ -552,7 +594,11 @@ func (s *Service) sendWebhook(ctx context.Context, channel Channel, alert alerts
 	if err != nil {
 		return errors.New("webhook signing secret cannot be decrypted")
 	}
-	body, err := json.Marshal(map[string]any{"alert": alert, "deep_link": "/alerts/" + alert.ID, "sent_at": s.now().Format(time.RFC3339)})
+	deepLink := alert.DeepLink
+	if deepLink == "" {
+		deepLink = "/alerts/" + alert.ID
+	}
+	body, err := json.Marshal(map[string]any{"alert": alert, "deep_link": deepLink, "sent_at": s.now().Format(time.RFC3339)})
 	if err != nil {
 		return err
 	}
@@ -589,4 +635,27 @@ func (s *Service) sendWebhook(ctx context.Context, channel Channel, alert alerts
 		}
 	}
 	return err
+}
+
+func formatTime(value *time.Time) string {
+	if value == nil {
+		return "unknown"
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func valueOrUnknown(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unknown"
+	}
+	return value
+}
+
+func retryWait(ctx context.Context, attempt int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Duration(attempt) * 10 * time.Millisecond):
+		return nil
+	}
 }
