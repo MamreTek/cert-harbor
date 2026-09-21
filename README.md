@@ -58,7 +58,7 @@ The inventory API currently provides:
 - `GET /api/v1/audit-events` with stable page/page-size pagination
 - `GET/POST/PATCH/DELETE /api/v1/notification-channels`, channel test, alert notify, and `GET /api/v1/notification-deliveries`
 
-Email channels use an `smtp://host:port?from=...&to=...` endpoint. SMTP `username`, `password`, `from`, and `to` values are submitted as encrypted channel credentials; the API never returns them. SMTPS/TLS transport hardening remains a deployment follow-up before production email use.
+Email channels use an `smtp://` or `smtps://host:port?from=...&to=...` endpoint. SMTP `username`, `password`, `from`, and `to` values are submitted as encrypted channel credentials; the API never returns them. Alert notifications are first written to a persisted outbox and retried by the background delivery loop.
 
 Provider credentials and webhook signing secrets are encrypted with the configured application key, omitted from API responses, and excluded from audit records. The catalog snapshot is written atomically to `CERT_HARBOR_DATA_PATH` (the Compose deployment persists it in the `cert_harbor_data` volume). The current adapters use the bundled fixture contract; live provider API clients and SMTP delivery remain follow-up implementation work.
 

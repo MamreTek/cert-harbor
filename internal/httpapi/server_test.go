@@ -283,6 +283,20 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 		t.Fatalf("unexpected domain response: %#v", body)
 	}
 
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/domains/demo-cloudflare:domain:zone-demo-example", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "zone-demo-example") {
+		t.Fatalf("domain detail response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/certificates/demo-cloudflare:certificate:cert-demo-example", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "cert-demo-example") {
+		t.Fatalf("certificate detail response = %d %s", response.Code, response.Body.String())
+	}
+
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/export/certificates.csv?provider=cloudflare", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)

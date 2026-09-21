@@ -390,6 +390,13 @@ func (s *Store) ListDomains(filter Filter) ([]domain.Domain, int) {
 	return paginate(items, filter)
 }
 
+func (s *Store) GetDomain(id string) (domain.Domain, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.domains[id]
+	return item, ok
+}
+
 func (s *Store) ListCertificates(filter Filter) ([]domain.Certificate, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -401,6 +408,13 @@ func (s *Store) ListCertificates(filter Filter) ([]domain.Certificate, int) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CommonName < items[j].CommonName })
 	return paginate(items, filter)
+}
+
+func (s *Store) GetCertificate(id string) (domain.Certificate, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.certificates[id]
+	return item, ok
 }
 
 func (s *Store) ListSyncRuns() []SyncRun {

@@ -182,3 +182,38 @@ func TestEmailDeliveryUsesEncryptedSMTPCredentials(t *testing.T) {
 		t.Fatal("SMTP server did not receive the message")
 	}
 }
+
+func TestQueuedAlertSurvivesRestartUntilDelivered(t *testing.T) {
+	box, err := security.NewSecretBox("notification-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := box.Encrypt([]byte("webhook-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "notifications", "state.json")
+	service, err := OpenService(box, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AddChannel(Channel{ID: "webhook", Name: "Webhook", Kind: KindWebhook, Endpoint: server.URL, Enabled: true, SigningSecretCiphertext: secret}); err != nil {
+		t.Fatal(err)
+	}
+	alert := alerts.Alert{ID: "queued-alert", State: alerts.StateOpen}
+	if err := service.Queue(alert); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := OpenService(box, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliveries := restarted.DeliverOutbox(context.Background())
+	if len(deliveries) != 1 || deliveries[0].Status != "delivered" || len(restarted.Deliveries()) != 1 {
+		t.Fatalf("restarted outbox deliveries = %#v history=%#v", deliveries, restarted.Deliveries())
+	}
+}

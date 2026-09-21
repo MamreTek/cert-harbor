@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
@@ -21,6 +23,7 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	cfg := config.FromEnv()
 	if err := cfg.Validate(); err != nil {
 		log.Fatal(err)
@@ -65,6 +68,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go scheduler.New(store, syncService).Run(ctx, cfg.SyncInterval)
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		_ = notificationService.DeliverOutbox(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = notificationService.DeliverOutbox(ctx)
+			}
+		}
+	}()
 
 	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.NewServer(cfg, httpapi.Dependencies{Store: store, Syncer: syncService, Alerts: alertEngine, Secrets: secrets, Notifications: notificationService}).Handler()}
 	go func() {

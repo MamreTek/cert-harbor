@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/csv"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -31,6 +32,7 @@ type Server struct {
 	secrets       *security.SecretBox
 	notifications *notifications.Service
 	metrics       *observability.Metrics
+	logger        *slog.Logger
 	mux           *http.ServeMux
 }
 
@@ -41,6 +43,7 @@ type Dependencies struct {
 	Secrets       *security.SecretBox
 	Notifications *notifications.Service
 	Metrics       *observability.Metrics
+	Logger        *slog.Logger
 }
 
 type role string
@@ -73,7 +76,10 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	if deps.Metrics == nil {
 		deps.Metrics = observability.New()
 	}
-	s := &Server{config: cfg, store: deps.Store, syncer: deps.Syncer, alerts: deps.Alerts, secrets: deps.Secrets, notifications: deps.Notifications, metrics: deps.Metrics, mux: http.NewServeMux()}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	s := &Server{config: cfg, store: deps.Store, syncer: deps.Syncer, alerts: deps.Alerts, secrets: deps.Secrets, notifications: deps.Notifications, metrics: deps.Metrics, logger: deps.Logger, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.HandleFunc("GET /metrics", s.metricsEndpoint)
@@ -91,7 +97,9 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("POST /api/v1/provider-connections/{id}/test", s.testConnection)
 	s.mux.HandleFunc("POST /api/v1/provider-connections/{id}/sync", s.syncConnection)
 	s.mux.HandleFunc("GET /api/v1/domains", s.domains)
+	s.mux.HandleFunc("GET /api/v1/domains/{id}", s.domainDetail)
 	s.mux.HandleFunc("GET /api/v1/certificates", s.certificates)
+	s.mux.HandleFunc("GET /api/v1/certificates/{id}", s.certificateDetail)
 	s.mux.HandleFunc("GET /api/v1/export/domains.csv", s.exportDomains)
 	s.mux.HandleFunc("GET /api/v1/export/certificates.csv", s.exportCertificates)
 	s.mux.HandleFunc("GET /api/v1/sync-runs", s.syncRuns)
@@ -119,6 +127,10 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		defer func() {
+			s.logger.Info("http_request", "method", r.Method, "path", r.URL.Path, "request_id", r.Header.Get("X-Request-ID"), "duration_ms", time.Since(started).Milliseconds())
+		}()
 		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/metrics" || r.URL.Path == "/api/v1/meta" || !strings.HasPrefix(r.URL.Path, "/api/") {
 			s.mux.ServeHTTP(w, r)
 			return
@@ -444,9 +456,27 @@ func (s *Server) domains(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page(r), "page_size": pageSize(r)})
 }
 
+func (s *Server) domainDetail(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.store.GetDomain(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "domain not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) certificates(w http.ResponseWriter, r *http.Request) {
 	items, total := s.store.ListCertificates(parseFilter(r))
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page(r), "page_size": pageSize(r)})
+}
+
+func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.store.GetCertificate(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "certificate not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
@@ -818,7 +848,8 @@ func (s *Server) notifyAlert(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
 		return
 	}
-	deliveries := s.notifications.Dispatch(r.Context(), alert)
+	_ = s.notifications.Queue(alert)
+	deliveries := s.notifications.DeliverOutbox(r.Context())
 	s.auditDeliveries(r, deliveries)
 	writeJSON(w, http.StatusOK, map[string]any{"items": deliveries})
 }
@@ -828,7 +859,8 @@ func (s *Server) dispatchAlerts(r *http.Request, alerts []alerting.Alert) {
 		if alert.State == alerting.StateResolved || alert.State == alerting.StateSuppressed {
 			continue
 		}
-		s.auditDeliveries(r, s.notifications.Dispatch(r.Context(), alert))
+		_ = s.notifications.Queue(alert)
+		s.auditDeliveries(r, s.notifications.DeliverOutbox(r.Context()))
 	}
 }
 
