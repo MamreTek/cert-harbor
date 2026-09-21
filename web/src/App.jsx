@@ -231,6 +231,7 @@ export function App({ fetcher = defaultFetcher }) {
     <Table rowKey="id" dataSource={certificates} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No certificates synchronized yet' }} columns={[
       { title: 'Common name', dataIndex: 'common_name', key: 'common_name' },
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },
+      { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
       { title: 'Valid to', dataIndex: 'valid_to', key: 'valid_to' },
       { title: 'Region', dataIndex: 'region', key: 'region', render: (value) => value || '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },

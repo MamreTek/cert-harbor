@@ -153,7 +153,7 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 		if certificate.ExpiresOn != nil {
 			validTo = *certificate.ExpiresOn
 		}
-		items = append(items, domain.Certificate{SourceID: certificate.ID, CommonName: commonName, SANs: certificate.Hosts, Issuer: certificate.CertificateAuthority, ValidFrom: validFrom, ValidTo: validTo, SourceURL: a.baseURL + "/zones/" + zoneID + "/ssl/certificate_packs/" + certificate.ID})
+		items = append(items, domain.Certificate{SourceID: certificate.ID, CommonName: commonName, SANs: certificate.Hosts, Issuer: certificate.CertificateAuthority, Status: certificate.Status, ValidFrom: validFrom, ValidTo: validTo, SourceURL: a.baseURL + "/zones/" + zoneID + "/ssl/certificate_packs/" + certificate.ID})
 	}
 	next := ""
 	if payload.ResultInfo.TotalPages > page {

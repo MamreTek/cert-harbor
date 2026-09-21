@@ -123,6 +123,7 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 				DomainName              string    `json:"DomainName"`
 				SubjectAlternativeNames []string  `json:"SubjectAlternativeNames"`
 				Issuer                  string    `json:"Issuer"`
+				Status                  string    `json:"Status"`
 				Serial                  string    `json:"Serial"`
 				NotBefore               time.Time `json:"NotBefore"`
 				NotAfter                time.Time `json:"NotAfter"`
@@ -140,7 +141,7 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 		if len(sans) == 0 {
 			sans = summary.SubjectAlternativeNames
 		}
-		items = append(items, domain.Certificate{SourceID: summary.CertificateArn, CommonName: commonName, SANs: sans, Issuer: certificate.Issuer, SerialNumber: certificate.Serial, ValidFrom: certificate.NotBefore, ValidTo: certificate.NotAfter, Region: region, SourceURL: "https://" + region + ".console.aws.amazon.com/acm/home?region=" + url.QueryEscape(region) + "#/certificates/" + url.PathEscape(summary.CertificateArn)})
+		items = append(items, domain.Certificate{SourceID: summary.CertificateArn, CommonName: commonName, SANs: sans, Issuer: certificate.Issuer, Status: certificate.Status, SerialNumber: certificate.Serial, ValidFrom: certificate.NotBefore, ValidTo: certificate.NotAfter, Region: region, SourceURL: "https://" + region + ".console.aws.amazon.com/acm/home?region=" + url.QueryEscape(region) + "#/certificates/" + url.PathEscape(summary.CertificateArn)})
 	}
 	return providers.CertificatePage{Items: items, NextCursor: listed.NextToken}, nil
 }

@@ -60,4 +60,18 @@ func TestExportQueriesAreNotCappedByAPIPageSize(t *testing.T) {
 	}
 }
 
+func TestCertificateStatusFilter(t *testing.T) {
+	store := NewStore()
+	if err := store.ReplaceAssets("connection", time.Now().UTC(), nil, []domain.Certificate{
+		{ID: "valid", Provider: string(providers.Cloudflare), CommonName: "valid.example", Status: "ISSUED"},
+		{ID: "revoked", Provider: string(providers.Cloudflare), CommonName: "revoked.example", Status: "REVOKED"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, total := store.ListCertificates(Filter{Status: "revoked", Page: 1, PageSize: 50})
+	if total != 1 || len(items) != 1 || items[0].CommonName != "revoked.example" {
+		t.Fatalf("certificate status filter = total %d items %#v", total, items)
+	}
+}
+
 func timePtr(value time.Time) *time.Time { return &value }

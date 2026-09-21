@@ -359,12 +359,27 @@ func evaluateCertificate(e *Engine, rule Rule, item domain.Certificate, now time
 	}
 	expiresAt := item.ValidTo
 	state, severity, days := expiryState(&expiresAt, item.Stale, rule.CertificateThresholds, now)
+	if certificateState, certificateSeverity := certificateStatusState(item.Status); certificateState != "" {
+		state = certificateState
+		severity = certificateSeverity
+	}
 	if state == "healthy" {
 		e.resolveByAsset(rule.ID, item.ID, "certificate", now)
 		return
 	}
 	e.closeOtherStates(rule.ID, item.ID, "certificate", state, now)
 	e.upsertAlert(Alert{ID: rule.ID + ":" + item.ID + ":" + state, RuleID: rule.ID, AssetID: item.ID, AssetKind: "certificate", AssetName: item.CommonName, Provider: item.Provider, State: StateOpen, Severity: severity, DaysRemaining: days, ExpiresAt: &expiresAt, UpdatedAt: now})
+}
+
+func certificateStatusState(status string) (string, string) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "revoked":
+		return "revoked", "critical"
+	case "failed", "validation_failed", "invalid", "inactive":
+		return "invalid", "critical"
+	default:
+		return "", ""
+	}
 }
 
 func expiryState(expiresAt *time.Time, stale bool, thresholds []int, now time.Time) (string, string, *int) {

@@ -142,6 +142,7 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 				CertEndTime    string   `json:"CertEndTime"`
 				SerialNumber   string   `json:"SerialNumber"`
 				Fingerprint    string   `json:"Fingerprint"`
+				Status         string   `json:"Status"`
 			} `json:"Certificates"`
 		} `json:"Response"`
 	}
@@ -156,7 +157,7 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 		}
 		validFrom, _ := parseTencentTime(item.CertBeginTime)
 		validTo, _ := parseTencentTime(item.CertEndTime)
-		items = append(items, domain.Certificate{SourceID: id, CommonName: item.Domain, SANs: item.SubjectAltName, Issuer: item.Issuer, SerialNumber: item.SerialNumber, Fingerprint: item.Fingerprint, ValidFrom: validFrom, ValidTo: validTo, SourceURL: "https://console.cloud.tencent.com/ssl"})
+		items = append(items, domain.Certificate{SourceID: id, CommonName: item.Domain, SANs: item.SubjectAltName, Issuer: item.Issuer, Status: item.Status, SerialNumber: item.SerialNumber, Fingerprint: item.Fingerprint, ValidFrom: validFrom, ValidTo: validTo, SourceURL: "https://console.cloud.tencent.com/ssl"})
 	}
 	next := ""
 	if offset+len(items) < payload.Response.TotalCount && len(items) > 0 {

@@ -30,6 +30,7 @@ type Certificate struct {
 	CommonName   string    `json:"common_name"`
 	SANs         []string  `json:"sans,omitempty"`
 	Issuer       string    `json:"issuer,omitempty"`
+	Status       string    `json:"status,omitempty"`
 	SerialNumber string    `json:"serial_number,omitempty"`
 	Fingerprint  string    `json:"fingerprint,omitempty"`
 	ValidFrom    time.Time `json:"valid_from"`

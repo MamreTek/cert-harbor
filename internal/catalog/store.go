@@ -679,7 +679,7 @@ func matchesDomain(filter Filter, item domain.Domain) bool {
 }
 
 func matchesCertificate(filter Filter, item domain.Certificate) bool {
-	return matches(filter, item.Provider, item.CommonName, item.Owner, item.Environment, item.Stale, item.Tags, &item.ValidTo)
+	return (filter.Status == "" || strings.EqualFold(filter.Status, item.Status)) && matches(filter, item.Provider, item.CommonName, item.Owner, item.Environment, item.Stale, item.Tags, &item.ValidTo)
 }
 
 func containsFold(values []string, wanted string) bool {

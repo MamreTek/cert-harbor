@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,21 @@ func TestEvaluatePreservesHistoricalAlertWhenAssetBecomesHealthy(t *testing.T) {
 	engine.Evaluate()
 	if len(engine.Alerts()) != 1 || engine.Alerts()[0].State != StateResolved {
 		t.Fatalf("expected historical alert to resolve: %#v", engine.Alerts())
+	}
+}
+
+func TestEvaluateCreatesInvalidCertificateAlertFromProviderStatus(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	store.ReplaceAssets("connection", now, nil, []domain.Certificate{{ID: "certificate", ConnectionID: "connection", Provider: string(providers.Cloudflare), CommonName: "example.com", Status: "REVOKED", ValidTo: now.Add(180 * 24 * time.Hour), LastSeenAt: now}})
+	engine := NewEngine(store)
+	engine.now = func() time.Time { return now }
+	items := engine.Evaluate()
+	if len(items) != 1 || items[0].State != StateOpen || !strings.Contains(items[0].ID, ":revoked") || items[0].Severity != "critical" {
+		t.Fatalf("revoked certificate alert = %#v", items)
 	}
 }
 
