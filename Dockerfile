@@ -8,6 +8,7 @@ RUN npm run build
 FROM golang:1.22-alpine AS api-build
 WORKDIR /src
 COPY go.mod ./
+COPY go.sum ./
 COPY cmd ./cmd
 COPY internal ./internal
 COPY examples ./examples

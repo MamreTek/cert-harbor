@@ -28,10 +28,11 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatal(err)
 	}
-	store, err := catalog.OpenStore(cfg.DataPath)
+	store, err := catalog.OpenStore(cfg.DataPath, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("open catalog store: %v", err)
 	}
+	defer func() { _ = store.Close() }()
 	adapters := registry.New(cfg.FixturePath)
 	var secrets *security.SecretBox
 	if cfg.EncryptionKey != "" {

@@ -1,14 +1,18 @@
 package catalog
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/MamreTek/cert-harbor/internal/domain"
 	"github.com/MamreTek/cert-harbor/internal/providers"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type persistedConnection struct {
@@ -27,9 +31,45 @@ type persistedConnection struct {
 }
 
 // OpenStore opens an atomically persisted catalog. An absent file starts empty.
-func OpenStore(path string) (*Store, error) {
+// When databaseURL is supplied, PostgreSQL is the source of truth and the
+// file path is ignored. The variadic form preserves the lightweight local API
+// used by tests and local development.
+func OpenStore(path string, databaseURLs ...string) (*Store, error) {
 	store := NewStore()
 	store.filePath = path
+	if len(databaseURLs) > 0 && databaseURLs[0] != "" {
+		db, err := openPostgres(databaseURLs[0])
+		if err != nil {
+			return nil, err
+		}
+		store.database = db
+		data, err := readPostgresSnapshot(db)
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		if len(data) == 0 {
+			if path != "" {
+				legacyData, legacyErr := os.ReadFile(path)
+				if legacyErr == nil && len(legacyData) > 0 {
+					if err := store.restore(legacyData); err != nil {
+						_ = db.Close()
+						return nil, fmt.Errorf("migrate legacy catalog snapshot: %w", err)
+					}
+					if err := store.persistLocked(); err != nil {
+						_ = db.Close()
+						return nil, fmt.Errorf("persist migrated catalog snapshot: %w", err)
+					}
+				}
+			}
+			return store, nil
+		}
+		if err := store.restore(data); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		return store, nil
+	}
 	if path == "" {
 		return store, nil
 	}
@@ -40,6 +80,13 @@ func OpenStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := store.restore(data); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func (s *Store) restore(data []byte) error {
 	var snapshot struct {
 		Version      int                            `json:"version"`
 		Domains      map[string]domain.Domain       `json:"domains"`
@@ -51,40 +98,34 @@ func OpenStore(path string) (*Store, error) {
 		Members      map[string]Member              `json:"members"`
 	}
 	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return nil, err
+		return err
 	}
 	if snapshot.Domains != nil {
-		store.domains = snapshot.Domains
+		s.domains = snapshot.Domains
 	}
 	if snapshot.Certificates != nil {
-		store.certificates = snapshot.Certificates
+		s.certificates = snapshot.Certificates
 	}
 	for id, connection := range snapshot.Connections {
-		store.connections[id] = Connection{
+		s.connections[id] = Connection{
 			ID: connection.ID, Name: connection.Name, Provider: connection.Provider, Enabled: connection.Enabled,
 			Source: connection.Source, FixturePath: connection.FixturePath, Capabilities: connection.Capabilities,
 			Status: connection.Status, LastSyncAt: connection.LastSyncAt, LastSyncError: connection.LastSyncError,
 			CredentialsStored: connection.CredentialsStored, CredentialsCiphertext: connection.CredentialsCiphertext,
 		}
 	}
-	store.syncRuns = snapshot.SyncRuns
-	store.auditEvents = snapshot.AuditEvents
+	s.syncRuns = snapshot.SyncRuns
+	s.auditEvents = snapshot.AuditEvents
 	if snapshot.Workspace.ID != "" {
-		store.workspace = snapshot.Workspace
+		s.workspace = snapshot.Workspace
 	}
 	if snapshot.Members != nil {
-		store.members = snapshot.Members
+		s.members = snapshot.Members
 	}
-	return store, nil
+	return nil
 }
 
 func (s *Store) persistLocked() error {
-	if s.filePath == "" {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(s.filePath), 0o700); err != nil {
-		return err
-	}
 	snapshot := struct {
 		Version      int                            `json:"version"`
 		Domains      map[string]domain.Domain       `json:"domains"`
@@ -107,6 +148,19 @@ func (s *Store) persistLocked() error {
 	if err != nil {
 		return err
 	}
+	if s.database != nil {
+		db, ok := s.database.(*postgresDatabase)
+		if !ok {
+			return errors.New("unsupported catalog persistence database")
+		}
+		return writePostgresSnapshot(db, data)
+	}
+	if s.filePath == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(s.filePath), 0o700); err != nil {
+		return err
+	}
 	temporary := s.filePath + ".tmp"
 	if err := os.WriteFile(temporary, data, 0o600); err != nil {
 		return err
@@ -114,6 +168,60 @@ func (s *Store) persistLocked() error {
 	if err := os.Rename(temporary, s.filePath); err != nil {
 		_ = os.Remove(temporary)
 		return err
+	}
+	return nil
+}
+
+type postgresDatabase struct{ *sql.DB }
+
+func openPostgres(databaseURL string) (*postgresDatabase, error) {
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres catalog: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("connect to postgres catalog: %w", err)
+	}
+	const schema = `
+CREATE TABLE IF NOT EXISTS cert_harbor_catalog_snapshots (
+  snapshot_id SMALLINT PRIMARY KEY,
+  payload JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+)`
+	if _, err := db.ExecContext(ctx, schema); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("initialize postgres catalog schema: %w", err)
+	}
+	return &postgresDatabase{DB: db}, nil
+}
+
+func readPostgresSnapshot(db *postgresDatabase) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var payload []byte
+	err := db.QueryRowContext(ctx, `SELECT payload FROM cert_harbor_catalog_snapshots WHERE snapshot_id = 1`).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read postgres catalog snapshot: %w", err)
+	}
+	return payload, nil
+}
+
+func writePostgresSnapshot(db *postgresDatabase, payload []byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := db.ExecContext(ctx, `
+INSERT INTO cert_harbor_catalog_snapshots (snapshot_id, payload, updated_at)
+VALUES (1, $1::jsonb, $2)
+ON CONFLICT (snapshot_id) DO UPDATE
+SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`, payload, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("write postgres catalog snapshot: %w", err)
 	}
 	return nil
 }

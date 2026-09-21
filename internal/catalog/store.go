@@ -93,6 +93,11 @@ type Store struct {
 	members      map[string]Member
 	active       map[string]bool
 	filePath     string
+	database     database
+}
+
+type database interface {
+	Close() error
 }
 
 func NewStore() *Store {
@@ -105,6 +110,14 @@ func NewStore() *Store {
 		members:      map[string]Member{"local-admin": {ID: "local-admin", Email: "admin@localhost", Name: "Local administrator", Role: "administrator", Status: "active", CreatedAt: now, UpdatedAt: now}},
 		active:       make(map[string]bool),
 	}
+}
+
+// Close releases an optional external persistence connection.
+func (s *Store) Close() error {
+	if s.database == nil {
+		return nil
+	}
+	return s.database.Close()
 }
 
 func (s *Store) Workspace() Workspace {

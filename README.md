@@ -6,7 +6,7 @@ The repository contains the runnable MVP: a Go API, React + Ant Design console, 
 
 ## Run locally
 
-Requirements: Go 1.22+, Node.js 18+, npm, and Docker Compose.
+Requirements: Go 1.22+, Node.js 18+, npm, and Docker Compose. Docker Compose starts PostgreSQL for the catalog; local `go run` uses JSON snapshots unless `CERT_HARBOR_DATABASE_URL` is set.
 
 Run the API:
 
@@ -60,13 +60,13 @@ The inventory API currently provides:
 
 Email channels use an `smtp://` or `smtps://host:port?from=...&to=...` endpoint. SMTP `username`, `password`, `from`, and `to` values are submitted as encrypted channel credentials; the API never returns them. Alert notifications are first written to a persisted outbox and retried by the background delivery loop.
 
-Provider credentials and webhook signing secrets are encrypted with the configured application key, omitted from API responses, and excluded from audit records. The catalog snapshot is written atomically to `CERT_HARBOR_DATA_PATH` (the Compose deployment persists it in the `cert_harbor_data` volume). Connections without credentials use the bundled fixture adapter; connections with encrypted credentials use the live read-only provider clients. SMTP/SMTPS delivery and signed webhook delivery are supported through the notification outbox.
+Provider credentials and webhook signing secrets are encrypted with the configured application key, omitted from API responses, and excluded from audit records. The catalog uses PostgreSQL when `CERT_HARBOR_DATABASE_URL` is configured and restores automatically on restart. Alert and notification state use atomic snapshots in `CERT_HARBOR_DATA_PATH`, `CERT_HARBOR_ALERTS_PATH`, and `CERT_HARBOR_NOTIFICATIONS_PATH`; Compose persists them in the `cert_harbor_data` volume. Connections without credentials use the bundled fixture adapter; connections with encrypted credentials use the live read-only provider clients. SMTP/SMTPS delivery and signed webhook delivery are supported through the notification outbox.
 
-Alert rules can be scoped by provider, owner, environment, and tag. Alert evaluation is full-catalog and is not limited by the paginated inventory API. The JSON snapshot backend is intended for the self-hosted MVP; a PostgreSQL-backed source of truth remains a release-hardening follow-up for installations with very large catalogs.
+Alert rules can be scoped by provider, owner, environment, and tag. Alert evaluation is full-catalog and is not limited by the paginated inventory API. See [`docs/operations.md`](docs/operations.md) for PostgreSQL backup/recovery and the disposable-database integration test.
 
 The read-only permission checklist for live adapters is in [`docs/provider-permissions.md`](docs/provider-permissions.md).
 
-Production mode requires `CERT_HARBOR_ENCRYPTION_KEY`, `CERT_HARBOR_ADMIN_TOKEN`, and `CERT_HARBOR_VIEWER_TOKEN`. Copy `.env.example` to `.env` for local configuration; never commit real secrets.
+Production mode requires `CERT_HARBOR_ENCRYPTION_KEY`, `CERT_HARBOR_ADMIN_TOKEN`, `CERT_HARBOR_VIEWER_TOKEN`, and `CERT_HARBOR_DATABASE_URL`. Copy `.env.example` to `.env` for local configuration; never commit real secrets.
 
 In production, send either `Authorization: Bearer <token>` or `X-CertHarbor-Token`. Viewer tokens can read inventory, sync history, alerts, and exports; administrator tokens are required for provider tests, synchronization, monitoring evaluation, and alert state changes.
 

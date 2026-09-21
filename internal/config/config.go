@@ -20,6 +20,7 @@ type Config struct {
 	DataPath          string
 	AlertsPath        string
 	NotificationsPath string
+	DatabaseURL       string
 	SyncInterval      time.Duration
 }
 
@@ -36,6 +37,7 @@ func FromEnv() Config {
 		DataPath:          valueOrDefault("CERT_HARBOR_DATA_PATH", "data/cert-harbor.json"),
 		AlertsPath:        valueOrDefault("CERT_HARBOR_ALERTS_PATH", "data/cert-harbor-alerts.json"),
 		NotificationsPath: valueOrDefault("CERT_HARBOR_NOTIFICATIONS_PATH", "data/cert-harbor-notifications.json"),
+		DatabaseURL:       os.Getenv("CERT_HARBOR_DATABASE_URL"),
 		SyncInterval:      durationFromEnv("CERT_HARBOR_SYNC_INTERVAL", 24*time.Hour),
 	}
 }
@@ -49,6 +51,9 @@ func (c Config) Validate() error {
 	}
 	if c.AdminToken == "" || c.ViewerToken == "" {
 		return errors.New("CERT_HARBOR_ADMIN_TOKEN and CERT_HARBOR_VIEWER_TOKEN are required in production")
+	}
+	if c.DatabaseURL == "" {
+		return errors.New("CERT_HARBOR_DATABASE_URL is required in production")
 	}
 	return nil
 }
