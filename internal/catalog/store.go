@@ -72,6 +72,7 @@ type Filter struct {
 	Owner         string
 	Environment   string
 	Status        string
+	ExpiryState   string
 	Tag           string
 	Stale         *bool
 	ExpiresBefore *time.Time
@@ -561,7 +562,27 @@ func matches(filter Filter, provider, name, owner, environment string, stale boo
 	if filter.ExpiresAfter != nil && (expiresAt == nil || expiresAt.Before(*filter.ExpiresAfter)) {
 		return false
 	}
+	if filter.ExpiryState != "" && !strings.EqualFold(filter.ExpiryState, expiryState(expiresAt, stale)) {
+		return false
+	}
 	return filter.Search == "" || strings.Contains(strings.ToLower(name), strings.ToLower(filter.Search))
+}
+
+func expiryState(expiresAt *time.Time, stale bool) string {
+	if stale {
+		return "stale"
+	}
+	if expiresAt == nil {
+		return "unknown"
+	}
+	days := int(time.Until(*expiresAt) / (24 * time.Hour))
+	if expiresAt.Before(time.Now().UTC()) {
+		return "expired"
+	}
+	if days <= 90 {
+		return "expiring"
+	}
+	return "healthy"
 }
 
 func matchesDomain(filter Filter, item domain.Domain) bool {

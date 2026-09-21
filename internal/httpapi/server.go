@@ -922,7 +922,7 @@ func findMember(items []catalog.Member, id string) (catalog.Member, bool) {
 }
 
 func parseFilter(r *http.Request) catalog.Filter {
-	filter := catalog.Filter{Search: r.URL.Query().Get("search"), Provider: r.URL.Query().Get("provider"), Owner: r.URL.Query().Get("owner"), Environment: r.URL.Query().Get("environment"), Status: r.URL.Query().Get("status"), Tag: r.URL.Query().Get("tag"), Sort: r.URL.Query().Get("sort"), Page: page(r), PageSize: pageSize(r)}
+	filter := catalog.Filter{Search: r.URL.Query().Get("search"), Provider: r.URL.Query().Get("provider"), Owner: r.URL.Query().Get("owner"), Environment: r.URL.Query().Get("environment"), Status: r.URL.Query().Get("status"), ExpiryState: r.URL.Query().Get("expiry_state"), Tag: r.URL.Query().Get("tag"), Sort: r.URL.Query().Get("sort"), Page: page(r), PageSize: pageSize(r)}
 	filter.SortDesc = strings.EqualFold(r.URL.Query().Get("order"), "desc")
 	if value := r.URL.Query().Get("stale"); value != "" {
 		if parsed, err := strconv.ParseBool(value); err == nil {

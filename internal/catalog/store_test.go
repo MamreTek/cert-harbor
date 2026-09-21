@@ -23,4 +23,24 @@ func TestInventoryFiltersOwnerTagExpiryAndSort(t *testing.T) {
 	}
 }
 
+func TestInventoryFiltersExpiryState(t *testing.T) {
+	store := NewStore()
+	now := time.Now().UTC()
+	if err := store.ReplaceAssets("connection", now, []domain.Domain{
+		{ID: "healthy", Provider: string(providers.Cloudflare), Name: "healthy.example", ExpiresAt: timePtr(now.Add(180 * 24 * time.Hour))},
+		{ID: "expiring", Provider: string(providers.Cloudflare), Name: "expiring.example", ExpiresAt: timePtr(now.Add(10 * 24 * time.Hour))},
+		{ID: "expired", Provider: string(providers.Cloudflare), Name: "expired.example", ExpiresAt: timePtr(now.Add(-24 * time.Hour))},
+		{ID: "unknown", Provider: string(providers.Cloudflare), Name: "unknown.example"},
+		{ID: "stale", Provider: string(providers.Cloudflare), Name: "stale.example", ExpiresAt: timePtr(now.Add(180 * 24 * time.Hour)), Stale: true},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for state, want := range map[string]string{"healthy": "healthy.example", "expiring": "expiring.example", "expired": "expired.example", "unknown": "unknown.example", "stale": "stale.example"} {
+		items, total := store.ListDomains(Filter{ExpiryState: state, Page: 1, PageSize: 50})
+		if total != 1 || len(items) != 1 || items[0].Name != want {
+			t.Fatalf("expiry state %q = total %d items %#v", state, total, items)
+		}
+	}
+}
+
 func timePtr(value time.Time) *time.Time { return &value }

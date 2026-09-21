@@ -50,7 +50,7 @@ The inventory API currently provides:
 - `GET /api/v1/workspace` and `GET/POST/PATCH/DELETE /api/v1/members` for the single-installation workspace boundary
 - `POST /api/v1/provider-connections/{id}/test`
 - `POST /api/v1/provider-connections/{id}/sync`
-- `GET /api/v1/domains` and `GET /api/v1/certificates` with `search`, `provider`, `owner`, `environment`, `status`, `tag`, `stale`, `expires_before`, `expires_after`, `sort`, `order`, `page`, and `page_size` filters
+- `GET /api/v1/domains` and `GET /api/v1/certificates` with `search`, `provider`, `owner`, `environment`, `status`, `expiry_state` (`healthy`, `expiring`, `expired`, `stale`, or `unknown`), `tag`, `stale`, `expires_before`, `expires_after`, `sort`, `order`, `page`, and `page_size` filters
 - `GET /api/v1/export/domains.csv` and `GET /api/v1/export/certificates.csv` for filtered, secret-free CSV exports
 - `GET /api/v1/sync-runs` and `GET /api/v1/catalog/summary`
 - `GET/POST/PATCH/DELETE /api/v1/alert-rules`, `GET /api/v1/alerts`, and `GET /api/v1/alert-events`

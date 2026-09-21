@@ -7,7 +7,7 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { Alert, Button, Card, Col, Layout, Menu, Row, Space, Spin, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Input, Layout, Menu, Row, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd'
 
 const { Header, Sider, Content } = Layout
 
@@ -43,6 +43,9 @@ export function App({ fetcher = defaultFetcher }) {
   const [loading, setLoading] = useState(Boolean(fetcher))
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
+  const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', expiry_state: '', stale: '' })
+
+  const filterQuery = new URLSearchParams(Object.entries(inventoryFilters).filter(([, value]) => value !== '')).toString()
 
   const loadInventory = useCallback(async () => {
     if (!fetcher) return
@@ -52,8 +55,8 @@ export function App({ fetcher = defaultFetcher }) {
       const responses = await Promise.all([
         fetcher('/api/v1/catalog/summary'),
         fetcher('/api/v1/provider-connections'),
-        fetcher('/api/v1/domains?page=1&page_size=50'),
-        fetcher('/api/v1/certificates?page=1&page_size=50'),
+        fetcher(`/api/v1/domains?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
+        fetcher(`/api/v1/certificates?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
         fetcher('/api/v1/alerts'),
         fetcher('/api/v1/alert-rules'),
         fetcher('/api/v1/members'),
@@ -74,7 +77,7 @@ export function App({ fetcher = defaultFetcher }) {
     } finally {
       setLoading(false)
     }
-  }, [fetcher])
+  }, [fetcher, filterQuery])
 
   useEffect(() => {
     loadInventory()
@@ -101,6 +104,13 @@ export function App({ fetcher = defaultFetcher }) {
     ...certificates.map((item) => ({ key: item.id, asset: item.common_name, type: 'Certificate', provider: item.provider, state: item.stale ? 'Stale' : 'Healthy', lastSync: item.last_seen_at })),
   ], [certificates, domains])
 
+  const renderInventoryFilters = () => <Space wrap className="inventory-filters">
+    <Input.Search placeholder="Search inventory" allowClear onSearch={(value) => setInventoryFilters((current) => ({ ...current, search: value }))} onChange={(event) => { if (!event.target.value) setInventoryFilters((current) => ({ ...current, search: '' })) }} />
+    <Select allowClear placeholder="Provider" style={{ minWidth: 150 }} value={inventoryFilters.provider || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, provider: value || '' }))} options={connections.map((item) => ({ value: item.provider, label: item.provider }))} />
+    <Select allowClear placeholder="Expiry state" style={{ minWidth: 150 }} value={inventoryFilters.expiry_state || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, expiry_state: value || '' }))} options={['healthy', 'expiring', 'expired', 'stale', 'unknown'].map((value) => ({ value, label: value }))} />
+    <Select allowClear placeholder="Freshness" style={{ minWidth: 130 }} value={inventoryFilters.stale || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, stale: value || '' }))} options={[{ value: 'false', label: 'Current' }, { value: 'true', label: 'Stale' }]} />
+  </Space>
+
   const pageTitle = {
     overview: 'Overview',
     domains: 'Domain inventory',
@@ -121,7 +131,7 @@ export function App({ fetcher = defaultFetcher }) {
     </Card>
   </>
 
-  const renderDomains = () => <Card title="Domains">
+  const renderDomains = () => <Card title="Domains" extra={renderInventoryFilters()}>
     <Table rowKey="id" dataSource={domains} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No domains synchronized yet' }} columns={[
       { title: 'Domain', dataIndex: 'name', key: 'name' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
@@ -132,7 +142,7 @@ export function App({ fetcher = defaultFetcher }) {
     ]} />
   </Card>
 
-  const renderCertificates = () => <Card title="Certificates">
+  const renderCertificates = () => <Card title="Certificates" extra={renderInventoryFilters()}>
     <Table rowKey="id" dataSource={certificates} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No certificates synchronized yet' }} columns={[
       { title: 'Common name', dataIndex: 'common_name', key: 'common_name' },
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },

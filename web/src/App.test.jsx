@@ -18,5 +18,6 @@ describe('CertHarbor console', () => {
     })
     fireEvent.click(screen.getByText('Domain inventory'))
     expect(screen.getByText('Domains')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search inventory')).toBeInTheDocument()
   })
 })
