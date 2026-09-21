@@ -32,6 +32,7 @@ type Rule struct {
 	Providers             []string `json:"providers,omitempty"`
 	Owners                []string `json:"owners,omitempty"`
 	Environments          []string `json:"environments,omitempty"`
+	Tags                  []string `json:"tags,omitempty"`
 }
 
 type Alert struct {
@@ -130,11 +131,11 @@ func (e *Engine) Evaluate() []Alert {
 		if !rule.Enabled {
 			continue
 		}
-		domains, _ := e.catalog.ListDomains(catalog.Filter{Page: 1, PageSize: 200})
+		domains := e.catalog.ListAllDomains()
 		for _, item := range domains {
 			evaluateDomain(e, rule, item, now)
 		}
-		certificates, _ := e.catalog.ListCertificates(catalog.Filter{Page: 1, PageSize: 200})
+		certificates := e.catalog.ListAllCertificates()
 		for _, item := range certificates {
 			evaluateCertificate(e, rule, item, now)
 		}
@@ -340,7 +341,7 @@ func (e *Engine) listAlertsLocked() []Alert {
 }
 
 func evaluateDomain(e *Engine, rule Rule, item domain.Domain, now time.Time) {
-	if !matchesRule(rule, item.Provider, item.Owner, item.Environment) {
+	if !matchesRule(rule, item.Provider, item.Owner, item.Environment, item.Tags) {
 		return
 	}
 	state, severity, days := expiryState(item.ExpiresAt, item.Stale, rule.DomainThresholds, now)
@@ -353,7 +354,7 @@ func evaluateDomain(e *Engine, rule Rule, item domain.Domain, now time.Time) {
 }
 
 func evaluateCertificate(e *Engine, rule Rule, item domain.Certificate, now time.Time) {
-	if !matchesRule(rule, item.Provider, item.Owner, item.Environment) {
+	if !matchesRule(rule, item.Provider, item.Owner, item.Environment, item.Tags) {
 		return
 	}
 	expiresAt := item.ValidTo
@@ -396,8 +397,8 @@ func severityForDays(days int) string {
 	}
 }
 
-func matchesRule(rule Rule, provider, owner, environment string) bool {
-	return matches(rule.Providers, provider) && matches(rule.Owners, owner) && matches(rule.Environments, environment)
+func matchesRule(rule Rule, provider, owner, environment string, tags []string) bool {
+	return matches(rule.Providers, provider) && matches(rule.Owners, owner) && matches(rule.Environments, environment) && matchesAny(rule.Tags, tags)
 }
 
 func matches(values []string, value string) bool {
@@ -407,6 +408,20 @@ func matches(values []string, value string) bool {
 	for _, candidate := range values {
 		if strings.EqualFold(candidate, value) {
 			return true
+		}
+	}
+	return false
+}
+
+func matchesAny(wanted, values []string) bool {
+	if len(wanted) == 0 {
+		return true
+	}
+	for _, candidate := range wanted {
+		for _, value := range values {
+			if strings.EqualFold(candidate, value) {
+				return true
+			}
 		}
 	}
 	return false

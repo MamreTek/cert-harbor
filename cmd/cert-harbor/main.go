@@ -67,7 +67,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go scheduler.New(store, syncService).Run(ctx, cfg.SyncInterval)
+	monitorCycle := func(cycleCtx context.Context) {
+		for _, alert := range alertEngine.Evaluate() {
+			if alert.State == alerting.StateResolved || alert.State == alerting.StateSuppressed {
+				continue
+			}
+			_ = notificationService.Queue(alert)
+		}
+		_ = notificationService.DeliverOutbox(cycleCtx)
+	}
+	go scheduler.New(store, syncService, monitorCycle).Run(ctx, cfg.SyncInterval)
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()

@@ -409,6 +409,20 @@ func (s *Store) ListDomains(filter Filter) ([]domain.Domain, int) {
 	return paginate(items, filter)
 }
 
+// ListAllDomains returns every domain that is currently known to the catalog.
+// Background monitoring uses this method so alert evaluation is not capped by
+// the API's page-size limit.
+func (s *Store) ListAllDomains() []domain.Domain {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]domain.Domain, 0, len(s.domains))
+	for _, item := range s.domains {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return items
+}
+
 func (s *Store) GetDomain(id string) (domain.Domain, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -438,6 +452,20 @@ func (s *Store) ListCertificates(filter Filter) ([]domain.Certificate, int) {
 		return items[i].CommonName < items[j].CommonName
 	})
 	return paginate(items, filter)
+}
+
+// ListAllCertificates returns every certificate that is currently known to the
+// catalog. Background monitoring uses this method so alert evaluation is not
+// capped by the API's page-size limit.
+func (s *Store) ListAllCertificates() []domain.Certificate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]domain.Certificate, 0, len(s.certificates))
+	for _, item := range s.certificates {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CommonName < items[j].CommonName })
+	return items
 }
 
 func (s *Store) GetCertificate(id string) (domain.Certificate, bool) {

@@ -555,6 +555,7 @@ type alertRuleRequest struct {
 	Providers             []string `json:"providers"`
 	Owners                []string `json:"owners"`
 	Environments          []string `json:"environments"`
+	Tags                  []string `json:"tags"`
 }
 
 func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
@@ -574,7 +575,7 @@ func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
 	if request.StaleAfterHours != nil {
 		staleAfter = *request.StaleAfterHours
 	}
-	rule := alerting.Rule{ID: request.ID, Name: request.Name, Enabled: enabled, DomainThresholds: request.DomainThresholds, CertificateThresholds: request.CertificateThresholds, StaleAfterHours: staleAfter, Providers: request.Providers, Owners: request.Owners, Environments: request.Environments}
+	rule := alerting.Rule{ID: request.ID, Name: request.Name, Enabled: enabled, DomainThresholds: request.DomainThresholds, CertificateThresholds: request.CertificateThresholds, StaleAfterHours: staleAfter, Providers: request.Providers, Owners: request.Owners, Environments: request.Environments, Tags: request.Tags}
 	if len(rule.DomainThresholds) == 0 {
 		rule.DomainThresholds = []int{90, 30, 14, 7, 3}
 	}
@@ -624,6 +625,9 @@ func (s *Server) updateAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.Environments != nil {
 		current.Environments = request.Environments
+	}
+	if request.Tags != nil {
+		current.Tags = request.Tags
 	}
 	updated, err := s.alerts.UpdateRule(current)
 	if err != nil {

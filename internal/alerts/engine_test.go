@@ -105,3 +105,46 @@ func TestAlertRuleCRUDNormalizesThresholdsAndProtectsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEvaluateAppliesTagScopeAcrossTheFullCatalog(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	certificates := make([]domain.Certificate, 0, 205)
+	for index := 0; index < 205; index++ {
+		certificate := domain.Certificate{
+			ID:           "connection:certificate:cert-" + string(rune('a'+index)),
+			ConnectionID: "connection",
+			Provider:     string(providers.Cloudflare),
+			SourceID:     "cert-" + string(rune('a'+index)),
+			CommonName:   "example-" + string(rune('a'+index)) + ".com",
+			ValidTo:      now.Add(3 * 24 * time.Hour),
+			LastSeenAt:   now,
+			Tags:         []string{"production"},
+		}
+		if index == 204 {
+			certificate.Tags = []string{"staging"}
+		}
+		certificates = append(certificates, certificate)
+	}
+	if err := store.ReplaceAssets("connection", now, nil, certificates); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewEngine(store)
+	engine.now = func() time.Time { return now }
+	if err := engine.AddRule(Rule{ID: "staging", Name: "Staging only", Enabled: true, DomainThresholds: []int{30}, CertificateThresholds: []int{30}, StaleAfterHours: 24, Tags: []string{"staging"}}); err != nil {
+		t.Fatal(err)
+	}
+	items := engine.Evaluate()
+	matching := 0
+	for _, item := range items {
+		if item.RuleID == "staging" {
+			matching++
+		}
+	}
+	if matching != 1 {
+		t.Fatalf("tag-scoped full-catalog alerts = %d, want 1; alerts=%#v", matching, items)
+	}
+}
