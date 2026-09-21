@@ -15,6 +15,7 @@ import (
 	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
+	observability "github.com/MamreTek/cert-harbor/internal/metrics"
 	"github.com/MamreTek/cert-harbor/internal/notifications"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
@@ -29,6 +30,7 @@ type Server struct {
 	alerts        *alerting.Engine
 	secrets       *security.SecretBox
 	notifications *notifications.Service
+	metrics       *observability.Metrics
 	mux           *http.ServeMux
 }
 
@@ -38,6 +40,7 @@ type Dependencies struct {
 	Alerts        *alerting.Engine
 	Secrets       *security.SecretBox
 	Notifications *notifications.Service
+	Metrics       *observability.Metrics
 }
 
 type role string
@@ -67,9 +70,13 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	if deps.Notifications == nil {
 		deps.Notifications = notifications.NewService(deps.Secrets)
 	}
-	s := &Server{config: cfg, store: deps.Store, syncer: deps.Syncer, alerts: deps.Alerts, secrets: deps.Secrets, notifications: deps.Notifications, mux: http.NewServeMux()}
+	if deps.Metrics == nil {
+		deps.Metrics = observability.New()
+	}
+	s := &Server{config: cfg, store: deps.Store, syncer: deps.Syncer, alerts: deps.Alerts, secrets: deps.Secrets, notifications: deps.Notifications, metrics: deps.Metrics, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /readyz", s.ready)
+	s.mux.HandleFunc("GET /metrics", s.metricsEndpoint)
 	s.mux.HandleFunc("GET /api/v1/meta", s.meta)
 	s.mux.HandleFunc("GET /api/v1/workspace", s.workspace)
 	s.mux.HandleFunc("GET /api/v1/members", s.members)
@@ -112,7 +119,7 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/api/v1/meta" || !strings.HasPrefix(r.URL.Path, "/api/") {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/metrics" || r.URL.Path == "/api/v1/meta" || !strings.HasPrefix(r.URL.Path, "/api/") {
 			s.mux.ServeHTTP(w, r)
 			return
 		}
@@ -169,6 +176,24 @@ func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func (s *Server) metricsEndpoint(w http.ResponseWriter, _ *http.Request) {
+	summary := s.store.Summary()
+	openAlerts := 0
+	for _, alert := range s.alerts.Alerts() {
+		if alert.State != alerting.StateResolved {
+			openAlerts++
+		}
+	}
+	staleConnections := 0
+	for _, connection := range s.store.ListConnections() {
+		if connection.Status == "unhealthy" {
+			staleConnections++
+		}
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	_, _ = w.Write([]byte(s.metrics.Render(summary, openAlerts, staleConnections)))
 }
 
 func (s *Server) meta(w http.ResponseWriter, _ *http.Request) {
@@ -399,6 +424,7 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 	run, err := s.syncer.Sync(r.Context(), r.PathValue("id"))
 	if err != nil {
+		s.metrics.Inc("sync_failures_total")
 		_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "failed")
 		status := http.StatusUnprocessableEntity
 		if strings.Contains(err.Error(), "not found") {
@@ -407,6 +433,7 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
+	s.metrics.Inc("sync_runs_total")
 	s.dispatchAlerts(r, s.alerts.Evaluate())
 	_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "succeeded")
 	writeJSON(w, http.StatusOK, run)
@@ -807,6 +834,10 @@ func (s *Server) dispatchAlerts(r *http.Request, alerts []alerting.Alert) {
 
 func (s *Server) auditDeliveries(r *http.Request, deliveries []notifications.Delivery) {
 	for _, delivery := range deliveries {
+		s.metrics.Inc("notification_deliveries_total")
+		if delivery.Status != "delivered" {
+			s.metrics.Inc("notification_failures_total")
+		}
 		_ = s.audit(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status)
 	}
 }

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { App } from './App'
 
@@ -16,5 +16,7 @@ describe('CertHarbor console', () => {
       expect(screen.getByText('Inventory')).toBeInTheDocument()
       expect(screen.getByText('No assets synchronized yet')).toBeInTheDocument()
     })
+    fireEvent.click(screen.getByText('Domain inventory'))
+    expect(screen.getByText('Domains')).toBeInTheDocument()
   })
 })

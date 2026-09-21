@@ -27,6 +27,7 @@ func TestHealthAndReadinessEndpoints(t *testing.T) {
 	}{
 		{path: "/healthz", want: http.StatusOK},
 		{path: "/readyz", want: http.StatusOK},
+		{path: "/metrics", want: http.StatusOK},
 		{path: "/api/v1/meta", want: http.StatusOK},
 	} {
 		req := httptest.NewRequest(http.MethodGet, test.path, nil)
