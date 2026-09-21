@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -55,7 +56,10 @@ func TestPostgresCatalogRoundTrip(t *testing.T) {
 		t.Fatalf("restored audit events = %#v", events)
 	}
 	state, err := second.StateBackend().LoadState("integration-test")
-	if err != nil || string(state) != `{"state":"durable"}` {
+	var decodedState struct {
+		State string `json:"state"`
+	}
+	if err != nil || json.Unmarshal(state, &decodedState) != nil || decodedState.State != "durable" {
 		t.Fatalf("restored shared state = %s err=%v", state, err)
 	}
 }
