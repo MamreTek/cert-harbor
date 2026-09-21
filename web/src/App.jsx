@@ -19,16 +19,22 @@ const menuItems = [
   { key: 'settings', icon: <SettingOutlined />, label: 'Settings' },
 ]
 
-const columns = [
-  { title: 'Asset', dataIndex: 'asset', key: 'asset' },
-  { title: 'Type', dataIndex: 'type', key: 'type' },
-  { title: 'Provider', dataIndex: 'provider', key: 'provider' },
-  { title: 'State', dataIndex: 'state', key: 'state', render: (state) => <Tag color={state === 'Stale' ? 'orange' : 'green'}>{state}</Tag> },
-  { title: 'Last sync', dataIndex: 'lastSync', key: 'lastSync' },
-]
-
 const emptySummary = { domains: 0, certificates: 0, connections: 0, stale_assets: 0 }
 const defaultFetcher = globalThis.fetch?.bind(globalThis)
+const browserTimeZone = () => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+}
+const timeZoneOptions = ['UTC', browserTimeZone(), 'Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York', 'America/Los_Angeles'].filter((value, index, values) => values.indexOf(value) === index).map((value) => ({ value, label: value }))
+const formatTimestamp = (value, timeZone) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(date)
+  } catch {
+    return value
+  }
+}
 
 export function App({ fetcher = defaultFetcher }) {
   const [summary, setSummary] = useState(emptySummary)
@@ -72,6 +78,9 @@ export function App({ fetcher = defaultFetcher }) {
     try { return globalThis.localStorage?.getItem('cert_harbor_token') || '' } catch { return '' }
   })
   const [tokenDraft, setTokenDraft] = useState(authToken)
+  const [timeZone, setTimeZone] = useState(() => {
+    try { return globalThis.localStorage?.getItem('cert_harbor_timezone') || browserTimeZone() } catch { return browserTimeZone() }
+  })
 
   const requester = useCallback((url, options = {}) => {
     const headers = { ...(options.headers || {}) }
@@ -315,6 +324,14 @@ export function App({ fetcher = defaultFetcher }) {
     ...certificates.map((item) => ({ key: item.id, asset: item.common_name, type: 'Certificate', provider: item.provider, state: item.stale ? 'Stale' : 'Healthy', lastSync: item.last_seen_at })),
   ], [certificates, domains])
 
+  const overviewColumns = [
+    { title: 'Asset', dataIndex: 'asset', key: 'asset' },
+    { title: 'Type', dataIndex: 'type', key: 'type' },
+    { title: 'Provider', dataIndex: 'provider', key: 'provider' },
+    { title: 'State', dataIndex: 'state', key: 'state', render: (state) => <Tag color={state === 'Stale' ? 'orange' : 'green'}>{state}</Tag> },
+    { title: 'Last sync', dataIndex: 'lastSync', key: 'lastSync', render: (value) => formatTimestamp(value, timeZone) },
+  ]
+
   const renderInventoryFilters = () => <Space wrap className="inventory-filters">
     <Input.Search placeholder="Search inventory" allowClear onSearch={(value) => setInventoryFilters((current) => ({ ...current, search: value }))} onChange={(event) => { if (!event.target.value) setInventoryFilters((current) => ({ ...current, search: '' })) }} />
     <Select allowClear placeholder="Provider" style={{ minWidth: 150 }} value={inventoryFilters.provider || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, provider: value || '' }))} options={connections.map((item) => ({ value: item.provider, label: item.provider }))} />
@@ -345,7 +362,7 @@ export function App({ fetcher = defaultFetcher }) {
       <Col xs={24} sm={12} lg={6}><Card><Statistic title="Open alerts" value={summary.open_alerts ?? alerts.filter((item) => item.state !== 'resolved').length} /></Card></Col>
     </Row>
     <Card title="Inventory" className="inventory-card">
-      <Table columns={columns} dataSource={rows.length ? rows : [{ key: 'empty', asset: 'No assets synchronized yet', type: '—', provider: '—', state: 'Ready', lastSync: 'Run your first sync' }]} pagination={false} />
+      <Table columns={overviewColumns} dataSource={rows.length ? rows : [{ key: 'empty', asset: 'No assets synchronized yet', type: '—', provider: '—', state: 'Ready', lastSync: 'Run your first sync' }]} pagination={false} />
     </Card>
   </>
 
@@ -356,7 +373,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
       { title: 'Expiry state', dataIndex: 'expiry_state', key: 'expiry_state', render: (value) => value || 'Unknown' },
       { title: 'Nameservers', dataIndex: 'nameservers', key: 'nameservers', render: (value) => (value ?? []).join(', ') || 'Unknown' },
-      { title: 'Last seen', dataIndex: 'last_seen_at', key: 'last_seen_at' },
+      { title: 'Last seen', dataIndex: 'last_seen_at', key: 'last_seen_at', render: (value) => formatTimestamp(value, timeZone) },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
       { title: 'Details', render: (_, item) => <Button size="small" onClick={() => openDetail('Domain', item)}>View</Button> },
     ]} />
@@ -368,7 +385,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },
       { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
       { title: 'Expiry state', dataIndex: 'expiry_state', key: 'expiry_state', render: (value) => value || 'Unknown' },
-      { title: 'Valid to', dataIndex: 'valid_to', key: 'valid_to' },
+      { title: 'Valid to', dataIndex: 'valid_to', key: 'valid_to', render: (value) => formatTimestamp(value, timeZone) },
       { title: 'Region', dataIndex: 'region', key: 'region', render: (value) => value || '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
@@ -384,7 +401,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Severity', dataIndex: 'severity', key: 'severity' },
       { title: 'Days remaining', dataIndex: 'days_remaining', key: 'days_remaining', render: (value) => value ?? '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
-      { title: 'Updated', dataIndex: 'updated_at', key: 'updated_at' },
+      { title: 'Updated', dataIndex: 'updated_at', key: 'updated_at', render: (value) => formatTimestamp(value, timeZone) },
       { title: 'Source', render: (_, item) => item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">Provider</a> : 'Unavailable' },
       { title: 'Details', render: (_, item) => <Button size="small" onClick={() => setAlertDetail(item)}>View</Button> },
       { title: 'Actions', render: (_, item) => <Space>
@@ -398,16 +415,16 @@ export function App({ fetcher = defaultFetcher }) {
 
   const renderSettings = () => <>
     <Row gutter={[16, 16]}>
-      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Capabilities', dataIndex: 'capabilities', render: (value) => value?.supported_source_types?.join(', ') || 'Unknown' }, { title: 'Last sync', dataIndex: 'last_sync_at', render: (value) => value || 'Never' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => syncConnection(item)} loading={syncing}>Sync</Button><Button size="small" onClick={() => testConnection(item)}>Test</Button><Button size="small" onClick={() => openModal('connection', item)}>Edit</Button><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Capabilities', dataIndex: 'capabilities', render: (value) => value?.supported_source_types?.join(', ') || 'Unknown' }, { title: 'Last sync', dataIndex: 'last_sync_at', render: (value) => value ? formatTimestamp(value, timeZone) : 'Never' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value ? formatTimestamp(value, timeZone) : item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => syncConnection(item)} loading={syncing}>Sync</Button><Button size="small" onClick={() => testConnection(item)}>Test</Button><Button size="small" onClick={() => openModal('connection', item)}>Edit</Button><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Members" extra={<Button size="small" onClick={() => openModal('member')}>Invite</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={members} columns={[{ title: 'Email', dataIndex: 'email' }, { title: 'Role', dataIndex: 'role' }, { title: 'Status', dataIndex: 'status' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => openModal('member', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/members/${item.id}`, 'Remove this member?')}>Remove</Button></Space> }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Notification channels" extra={<Button size="small" onClick={() => openModal('channel')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => testNotificationChannel(item)}>Test</Button><Button size="small" onClick={() => openModal('channel', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/notification-channels/${item.id}`, 'Delete this notification channel?')}>Delete</Button></Space> }]} /></Card></Col>
     </Row>
     <Card title="Alert rules" extra={<Button size="small" onClick={() => openModal('rule')}>Add</Button>} className="inventory-card"><Table rowKey="id" pagination={false} dataSource={rules} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Asset types', dataIndex: 'asset_types', render: (value) => (value ?? []).join(', ') || 'All' }, { title: 'Domain thresholds', dataIndex: 'domain_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Certificate thresholds', dataIndex: 'certificate_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Stale after (hours)', dataIndex: 'stale_after_hours' }, { title: 'Actions', render: (_, item) => item.id === 'default' ? 'Protected' : <Space><Button size="small" onClick={() => openModal('rule', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/alert-rules/${item.id}`, 'Delete this alert rule?')}>Delete</Button></Space> }]} /></Card>
     <Row gutter={[16, 16]} className="inventory-card">
-      <Col xs={24} lg={12}><Card title="Sync history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={syncRuns} columns={[{ title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Started', dataIndex: 'started_at' }, { title: 'Error', dataIndex: 'error_summary', render: (value) => value || '—' }]} /></Card></Col>
-      <Col xs={24} lg={12}><Card title="Audit history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={auditEvents} columns={[{ title: 'Action', dataIndex: 'action' }, { title: 'Object', dataIndex: 'object_type' }, { title: 'Outcome', dataIndex: 'outcome' }, { title: 'Created', dataIndex: 'created_at' }]} /></Card></Col>
+      <Col xs={24} lg={12}><Card title="Sync history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={syncRuns} columns={[{ title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Started', dataIndex: 'started_at', render: (value) => formatTimestamp(value, timeZone) }, { title: 'Error', dataIndex: 'error_summary', render: (value) => value || '—' }]} /></Card></Col>
+      <Col xs={24} lg={12}><Card title="Audit history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={auditEvents} columns={[{ title: 'Action', dataIndex: 'action' }, { title: 'Object', dataIndex: 'object_type' }, { title: 'Outcome', dataIndex: 'outcome' }, { title: 'Created', dataIndex: 'created_at', render: (value) => formatTimestamp(value, timeZone) }]} /></Card></Col>
     </Row>
-    <Card title="Notification delivery history" className="inventory-card"><Table rowKey="id" size="small" pagination={{ current: deliveryPage, pageSize: 20, total: deliveryTotal, showSizeChanger: false, onChange: setDeliveryPage }} dataSource={notificationDeliveries} locale={{ emptyText: 'No notification deliveries' }} columns={[{ title: 'Alert', dataIndex: 'alert_id' }, { title: 'Correlation', dataIndex: 'correlation_id' }, { title: 'Status', dataIndex: 'status', render: (value) => <Tag color={value === 'delivered' ? 'green' : 'red'}>{value}</Tag> }, { title: 'Attempts', dataIndex: 'attempts' }, { title: 'Created', dataIndex: 'created_at' }, { title: 'Error', dataIndex: 'last_error', render: (value) => value || '—' }]} /></Card>
+    <Card title="Notification delivery history" className="inventory-card"><Table rowKey="id" size="small" pagination={{ current: deliveryPage, pageSize: 20, total: deliveryTotal, showSizeChanger: false, onChange: setDeliveryPage }} dataSource={notificationDeliveries} locale={{ emptyText: 'No notification deliveries' }} columns={[{ title: 'Alert', dataIndex: 'alert_id' }, { title: 'Correlation', dataIndex: 'correlation_id' }, { title: 'Status', dataIndex: 'status', render: (value) => <Tag color={value === 'delivered' ? 'green' : 'red'}>{value}</Tag> }, { title: 'Attempts', dataIndex: 'attempts' }, { title: 'Created', dataIndex: 'created_at', render: (value) => formatTimestamp(value, timeZone) }, { title: 'Error', dataIndex: 'last_error', render: (value) => value || '—' }]} /></Card>
   </>
 
   const pageContent = { overview: renderOverview, domains: renderDomains, certificates: renderCertificates, alerts: renderAlerts, settings: renderSettings }[activePage]()
@@ -418,6 +435,11 @@ export function App({ fetcher = defaultFetcher }) {
       else globalThis.localStorage?.removeItem('cert_harbor_token')
     } catch { /* localStorage may be unavailable in embedded browsers */ }
     setAuthToken(tokenDraft)
+  }
+
+  const selectTimeZone = (value) => {
+    setTimeZone(value)
+    try { globalThis.localStorage?.setItem('cert_harbor_timezone', value) } catch { /* localStorage may be unavailable in embedded browsers */ }
   }
 
   return (
@@ -433,6 +455,7 @@ export function App({ fetcher = defaultFetcher }) {
             <Typography.Title level={4}>{pageTitle}</Typography.Title>
           </Space>
           <Space>
+            <Select aria-label="Timezone" size="small" value={timeZone} onChange={selectTimeZone} options={timeZoneOptions} style={{ width: 170 }} />
             <Input.Password aria-label="API token" placeholder="API token" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} onPressEnter={saveToken} style={{ width: 150 }} />
             <Button onClick={saveToken}>Use token</Button>
             {connections[0] && <Button type="primary" icon={<ReloadOutlined />} onClick={syncNow} loading={syncing}>Sync now</Button>}
@@ -475,11 +498,11 @@ export function App({ fetcher = defaultFetcher }) {
             <Descriptions.Item label="SANs">{(detailItem.sans || []).join(', ') || 'None'}</Descriptions.Item>
             <Descriptions.Item label="Linked domains">{(detailItem.linked_domains || []).join(', ') || 'Unknown'}</Descriptions.Item>
             <Descriptions.Item label="Certificate type">{detailItem.certificate_type || 'Unknown'}</Descriptions.Item>
-            <Descriptions.Item label="Valid from">{detailItem.valid_from || 'Unknown'}</Descriptions.Item>
-            <Descriptions.Item label="Valid to">{detailItem.valid_to || 'Unknown'}</Descriptions.Item>
+            <Descriptions.Item label="Valid from">{formatTimestamp(detailItem.valid_from, timeZone)}</Descriptions.Item>
+            <Descriptions.Item label="Valid to">{formatTimestamp(detailItem.valid_to, timeZone)}</Descriptions.Item>
             <Descriptions.Item label="Region">{detailItem.region || 'Unknown'}</Descriptions.Item>
           </>}
-          <Descriptions.Item label="Last seen">{detailItem.last_seen_at}</Descriptions.Item>
+          <Descriptions.Item label="Last seen">{formatTimestamp(detailItem.last_seen_at, timeZone)}</Descriptions.Item>
           <Descriptions.Item label="Source">{detailItem.source_url ? <a href={detailItem.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>
         </Descriptions>}
       </Modal>
@@ -491,7 +514,7 @@ export function App({ fetcher = defaultFetcher }) {
           <Descriptions.Item label="State">{alertDetail.state}</Descriptions.Item>
           <Descriptions.Item label="Severity">{alertDetail.severity}</Descriptions.Item>
           <Descriptions.Item label="Days remaining">{alertDetail.days_remaining ?? 'Unknown'}</Descriptions.Item>
-          <Descriptions.Item label="Expires at">{alertDetail.expires_at || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Expires at">{formatTimestamp(alertDetail.expires_at, timeZone)}</Descriptions.Item>
           <Descriptions.Item label="Freshness">{alertDetail.freshness || 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Notifications">{alertDeliveries.map((delivery) => `${delivery.status} (${delivery.correlation_id})`).join(', ') || 'No recorded deliveries'}</Descriptions.Item>
           <Descriptions.Item label="Source">{alertDetail.source_url ? <a href={alertDetail.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>

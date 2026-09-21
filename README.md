@@ -31,6 +31,8 @@ docker compose up --build
 
 The application is available at <http://localhost:8080>. The API exposes `/healthz`, `/readyz`, and `/api/v1/meta`.
 
+The console stores timestamps in UTC and renders them using the selected timezone in the header. The choice is kept in browser local storage and defaults to the browser timezone.
+
 The Compose stack runs the API and PostgreSQL together. Stop it with `Ctrl-C`, or run `docker compose down`; persistent data is kept in the `cert_harbor_data` and `cert_harbor_postgres` volumes. To start a disposable local demo, set `CERT_HARBOR_DEMO=1` in `.env`, rebuild, and then synchronize the bundled fixture:
 
 ```sh

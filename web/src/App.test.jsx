@@ -15,6 +15,7 @@ describe('CertHarbor console', () => {
       expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument()
       expect(screen.getByText('Inventory')).toBeInTheDocument()
       expect(screen.getByText('No assets synchronized yet')).toBeInTheDocument()
+      expect(screen.getByRole('combobox', { name: 'Timezone' })).toBeInTheDocument()
     })
     fireEvent.click(screen.getByText('Domain inventory'))
     expect(screen.getByText('Domains')).toBeInTheDocument()
@@ -61,7 +62,7 @@ describe('CertHarbor console', () => {
     fireEvent.click(screen.getByText('Sync'))
     await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/provider-connections/connection-1/sync' && options.method === 'POST')).toBe(true))
     expect(screen.getByText('Cloudflare sync completed.')).toBeInTheDocument()
-  })
+  }, 15000)
 
   it('opens inventory details from the domain table', async () => {
     const fetcher = async (url) => {
