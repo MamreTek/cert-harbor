@@ -42,6 +42,7 @@ export function App({ fetcher = defaultFetcher }) {
   const [alerts, setAlerts] = useState([])
   const [alertPage, setAlertPage] = useState(1)
   const [alertTotal, setAlertTotal] = useState(0)
+  const [alertFilters, setAlertFilters] = useState({ state: '', provider: '' })
   const [rules, setRules] = useState([])
   const [members, setMembers] = useState([])
   const [channels, setChannels] = useState([])
@@ -78,6 +79,7 @@ export function App({ fetcher = defaultFetcher }) {
   }, [authToken, fetcher])
 
   const filterQuery = new URLSearchParams(Object.entries(inventoryFilters).filter(([, value]) => value !== '')).toString()
+  const alertFilterQuery = new URLSearchParams(Object.entries(alertFilters).filter(([, value]) => value !== '')).toString()
 
   const loadInventory = useCallback(async () => {
     if (!fetcher) return
@@ -90,7 +92,7 @@ export function App({ fetcher = defaultFetcher }) {
         requester('/api/v1/provider-connections?page=1&page_size=50'),
         requester(`/api/v1/domains?page=${domainPage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
         requester(`/api/v1/certificates?page=${certificatePage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
-        requester(`/api/v1/alerts?page=${alertPage}&page_size=20`),
+        requester(`/api/v1/alerts?page=${alertPage}&page_size=20${alertFilterQuery ? `&${alertFilterQuery}` : ''}`),
         requester('/api/v1/alert-rules?page=1&page_size=50'),
         requester('/api/v1/members?page=1&page_size=50'),
         requester('/api/v1/notification-channels?page=1&page_size=50'),
@@ -120,12 +122,16 @@ export function App({ fetcher = defaultFetcher }) {
     } finally {
       setLoading(false)
     }
-  }, [alertPage, certificatePage, deliveryPage, domainPage, fetcher, filterQuery, requester])
+  }, [alertFilterQuery, alertPage, certificatePage, deliveryPage, domainPage, fetcher, filterQuery, requester])
 
   useEffect(() => {
     setDomainPage(1)
     setCertificatePage(1)
   }, [filterQuery])
+
+  useEffect(() => {
+    setAlertPage(1)
+  }, [alertFilterQuery])
 
   useEffect(() => {
     loadInventory()
@@ -351,7 +357,7 @@ export function App({ fetcher = defaultFetcher }) {
     ]} />
   </Card>
 
-  const renderAlerts = () => <Card title="Alerts">
+  const renderAlerts = () => <Card title="Alerts" extra={<Space><Select allowClear placeholder="State" style={{ minWidth: 130 }} value={alertFilters.state || undefined} onChange={(value) => setAlertFilters((current) => ({ ...current, state: value || '' }))} options={['open', 'acknowledged', 'resolved', 'suppressed'].map((value) => ({ value, label: value }))} /><Select allowClear placeholder="Provider" style={{ minWidth: 150 }} value={alertFilters.provider || undefined} onChange={(value) => setAlertFilters((current) => ({ ...current, provider: value || '' }))} options={connections.map((item) => ({ value: item.provider, label: item.provider }))} /></Space>}>
     <Table rowKey="id" dataSource={alerts} pagination={{ current: alertPage, pageSize: 20, total: alertTotal, showSizeChanger: false, onChange: setAlertPage }} locale={{ emptyText: 'No alerts' }} columns={[
       { title: 'Asset', dataIndex: 'asset_name', key: 'asset_name' },
       { title: 'Type', dataIndex: 'asset_kind', key: 'asset_kind' },
