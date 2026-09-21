@@ -46,6 +46,8 @@ export function App({ fetcher = defaultFetcher }) {
   const [syncRuns, setSyncRuns] = useState([])
   const [auditEvents, setAuditEvents] = useState([])
   const [notificationDeliveries, setNotificationDeliveries] = useState([])
+  const [deliveryPage, setDeliveryPage] = useState(1)
+  const [deliveryTotal, setDeliveryTotal] = useState(0)
   const [alertDetail, setAlertDetail] = useState(null)
   const [deepLinkAlertID] = useState(() => {
     const match = globalThis.location?.pathname?.match(/^\/alerts\/([^/]+)$/)
@@ -92,7 +94,7 @@ export function App({ fetcher = defaultFetcher }) {
         requester('/api/v1/notification-channels?page=1&page_size=50'),
         requester('/api/v1/sync-runs'),
         requester('/api/v1/audit-events?page=1&page_size=50'),
-        requester('/api/v1/notification-deliveries?page=1&page_size=50'),
+        requester(`/api/v1/notification-deliveries?page=${deliveryPage}&page_size=20`),
       ])
       if (responses.some((response) => !response.ok)) throw new Error('The inventory API returned an error.')
       const [nextSummary, nextConnections, nextDomains, nextCertificates, nextAlerts, nextRules, nextMembers, nextChannels, nextSyncRuns, nextAuditEvents, nextDeliveries] = await Promise.all(responses.map((response) => response.json()))
@@ -109,12 +111,13 @@ export function App({ fetcher = defaultFetcher }) {
       setSyncRuns(nextSyncRuns.items ?? [])
       setAuditEvents(nextAuditEvents.items ?? [])
       setNotificationDeliveries(nextDeliveries.items ?? [])
+      setDeliveryTotal(nextDeliveries.total ?? nextDeliveries.items?.length ?? 0)
     } catch (loadError) {
       setError(loadError.message || 'Unable to load inventory.')
     } finally {
       setLoading(false)
     }
-  }, [certificatePage, domainPage, fetcher, filterQuery, requester])
+  }, [certificatePage, deliveryPage, domainPage, fetcher, filterQuery, requester])
 
   useEffect(() => {
     setDomainPage(1)
@@ -376,7 +379,7 @@ export function App({ fetcher = defaultFetcher }) {
       <Col xs={24} lg={12}><Card title="Sync history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={syncRuns} columns={[{ title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Started', dataIndex: 'started_at' }, { title: 'Error', dataIndex: 'error_summary', render: (value) => value || '—' }]} /></Card></Col>
       <Col xs={24} lg={12}><Card title="Audit history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={auditEvents} columns={[{ title: 'Action', dataIndex: 'action' }, { title: 'Object', dataIndex: 'object_type' }, { title: 'Outcome', dataIndex: 'outcome' }, { title: 'Created', dataIndex: 'created_at' }]} /></Card></Col>
     </Row>
-    <Card title="Notification delivery history" className="inventory-card"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={notificationDeliveries} locale={{ emptyText: 'No notification deliveries' }} columns={[{ title: 'Alert', dataIndex: 'alert_id' }, { title: 'Correlation', dataIndex: 'correlation_id' }, { title: 'Status', dataIndex: 'status', render: (value) => <Tag color={value === 'delivered' ? 'green' : 'red'}>{value}</Tag> }, { title: 'Attempts', dataIndex: 'attempts' }, { title: 'Created', dataIndex: 'created_at' }, { title: 'Error', dataIndex: 'last_error', render: (value) => value || '—' }]} /></Card>
+    <Card title="Notification delivery history" className="inventory-card"><Table rowKey="id" size="small" pagination={{ current: deliveryPage, pageSize: 20, total: deliveryTotal, showSizeChanger: false, onChange: setDeliveryPage }} dataSource={notificationDeliveries} locale={{ emptyText: 'No notification deliveries' }} columns={[{ title: 'Alert', dataIndex: 'alert_id' }, { title: 'Correlation', dataIndex: 'correlation_id' }, { title: 'Status', dataIndex: 'status', render: (value) => <Tag color={value === 'delivered' ? 'green' : 'red'}>{value}</Tag> }, { title: 'Attempts', dataIndex: 'attempts' }, { title: 'Created', dataIndex: 'created_at' }, { title: 'Error', dataIndex: 'last_error', render: (value) => value || '—' }]} /></Card>
   </>
 
   const pageContent = { overview: renderOverview, domains: renderDomains, certificates: renderCertificates, alerts: renderAlerts, settings: renderSettings }[activePage]()
