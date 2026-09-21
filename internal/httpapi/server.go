@@ -91,6 +91,9 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("GET /api/v1/audit-events", s.auditEvents)
 	s.mux.HandleFunc("GET /api/v1/alerts", s.alertList)
 	s.mux.HandleFunc("GET /api/v1/alert-rules", s.alertRules)
+	s.mux.HandleFunc("POST /api/v1/alert-rules", s.createAlertRule)
+	s.mux.HandleFunc("PATCH /api/v1/alert-rules/{id}", s.updateAlertRule)
+	s.mux.HandleFunc("DELETE /api/v1/alert-rules/{id}", s.deleteAlertRule)
 	s.mux.HandleFunc("GET /api/v1/alert-events", s.alertEvents)
 	s.mux.HandleFunc("POST /api/v1/monitor/evaluate", s.evaluateAlerts)
 	s.mux.HandleFunc("POST /api/v1/alerts/{id}/acknowledge", s.acknowledgeAlert)
@@ -477,6 +480,104 @@ func (s *Server) alertList(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) alertRules(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Rules()})
+}
+
+type alertRuleRequest struct {
+	ID                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	Enabled               *bool    `json:"enabled"`
+	DomainThresholds      []int    `json:"domain_thresholds"`
+	CertificateThresholds []int    `json:"certificate_thresholds"`
+	StaleAfterHours       *int     `json:"stale_after_hours"`
+	Providers             []string `json:"providers"`
+	Owners                []string `json:"owners"`
+	Environments          []string `json:"environments"`
+}
+
+func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
+	var request alertRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid alert rule request"})
+		return
+	}
+	if request.ID == "" {
+		request.ID = slug(request.Name)
+	}
+	enabled := true
+	if request.Enabled != nil {
+		enabled = *request.Enabled
+	}
+	staleAfter := 26
+	if request.StaleAfterHours != nil {
+		staleAfter = *request.StaleAfterHours
+	}
+	rule := alerting.Rule{ID: request.ID, Name: request.Name, Enabled: enabled, DomainThresholds: request.DomainThresholds, CertificateThresholds: request.CertificateThresholds, StaleAfterHours: staleAfter, Providers: request.Providers, Owners: request.Owners, Environments: request.Environments}
+	if len(rule.DomainThresholds) == 0 {
+		rule.DomainThresholds = []int{90, 30, 14, 7, 3}
+	}
+	if len(rule.CertificateThresholds) == 0 {
+		rule.CertificateThresholds = []int{90, 30, 14, 7, 3}
+	}
+	if err := s.alerts.AddRule(rule); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = s.audit(r, "alert_rule.create", "alert_rule", rule.ID, "succeeded")
+	created, _ := s.alerts.GetRule(rule.ID)
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) updateAlertRule(w http.ResponseWriter, r *http.Request) {
+	current, ok := s.alerts.GetRule(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert rule not found"})
+		return
+	}
+	var request alertRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid alert rule request"})
+		return
+	}
+	if request.Name != "" {
+		current.Name = request.Name
+	}
+	if request.Enabled != nil {
+		current.Enabled = *request.Enabled
+	}
+	if request.DomainThresholds != nil {
+		current.DomainThresholds = request.DomainThresholds
+	}
+	if request.CertificateThresholds != nil {
+		current.CertificateThresholds = request.CertificateThresholds
+	}
+	if request.StaleAfterHours != nil {
+		current.StaleAfterHours = *request.StaleAfterHours
+	}
+	if request.Providers != nil {
+		current.Providers = request.Providers
+	}
+	if request.Owners != nil {
+		current.Owners = request.Owners
+	}
+	if request.Environments != nil {
+		current.Environments = request.Environments
+	}
+	updated, err := s.alerts.UpdateRule(current)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = s.audit(r, "alert_rule.update", "alert_rule", updated.ID, "succeeded")
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteAlertRule(w http.ResponseWriter, r *http.Request) {
+	if err := s.alerts.DeleteRule(r.PathValue("id")); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = s.audit(r, "alert_rule.delete", "alert_rule", r.PathValue("id"), "succeeded")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) alertEvents(w http.ResponseWriter, _ *http.Request) {

@@ -162,6 +162,62 @@ func (e *Engine) Rules() []Rule {
 	return items
 }
 
+func (e *Engine) GetRule(id string) (Rule, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	rule, ok := e.rules[id]
+	return rule, ok
+}
+
+func (e *Engine) AddRule(rule Rule) error {
+	if err := validateRule(rule); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, exists := e.rules[rule.ID]; exists {
+		return errors.New("alert rule already exists")
+	}
+	rule = normalizeRule(rule)
+	e.rules[rule.ID] = rule
+	return e.persistLocked()
+}
+
+func (e *Engine) UpdateRule(rule Rule) (Rule, error) {
+	if err := validateRule(rule); err != nil {
+		return Rule{}, err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, exists := e.rules[rule.ID]; !exists {
+		return Rule{}, errors.New("alert rule not found")
+	}
+	rule = normalizeRule(rule)
+	e.rules[rule.ID] = rule
+	if err := e.persistLocked(); err != nil {
+		return Rule{}, err
+	}
+	return rule, nil
+}
+
+func (e *Engine) DeleteRule(id string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if id == "default" {
+		return errors.New("the default alert rule cannot be deleted")
+	}
+	if _, exists := e.rules[id]; !exists {
+		return errors.New("alert rule not found")
+	}
+	delete(e.rules, id)
+	for alertID, alert := range e.alerts {
+		if alert.RuleID == id {
+			delete(e.alerts, alertID)
+		}
+	}
+	return e.persistLocked()
+}
+
 func (e *Engine) Alerts() []Alert {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -372,4 +428,40 @@ func validTransition(from, to string) bool {
 	default:
 		return false
 	}
+}
+
+func validateRule(rule Rule) error {
+	if rule.ID == "" || rule.Name == "" {
+		return errors.New("alert rule id and name are required")
+	}
+	if len(rule.DomainThresholds) == 0 || len(rule.CertificateThresholds) == 0 {
+		return errors.New("domain and certificate thresholds are required")
+	}
+	if rule.StaleAfterHours <= 0 {
+		return errors.New("stale_after_hours must be greater than zero")
+	}
+	for _, threshold := range append(append([]int{}, rule.DomainThresholds...), rule.CertificateThresholds...) {
+		if threshold < 0 {
+			return errors.New("thresholds cannot be negative")
+		}
+	}
+	return nil
+}
+
+func normalizeRule(rule Rule) Rule {
+	rule.DomainThresholds = uniqueSorted(rule.DomainThresholds)
+	rule.CertificateThresholds = uniqueSorted(rule.CertificateThresholds)
+	return rule
+}
+
+func uniqueSorted(values []int) []int {
+	items := append([]int(nil), values...)
+	sort.Ints(items)
+	result := make([]int, 0, len(items))
+	for _, item := range items {
+		if len(result) == 0 || result[len(result)-1] != item {
+			result = append(result, item)
+		}
+	}
+	return result
 }

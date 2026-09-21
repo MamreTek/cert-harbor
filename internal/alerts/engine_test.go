@@ -88,3 +88,20 @@ func TestEvaluatePreservesHistoricalAlertWhenAssetBecomesHealthy(t *testing.T) {
 		t.Fatalf("expected historical alert to resolve: %#v", engine.Alerts())
 	}
 }
+
+func TestAlertRuleCRUDNormalizesThresholdsAndProtectsDefault(t *testing.T) {
+	engine := NewEngine(catalog.NewStore())
+	if err := engine.AddRule(Rule{ID: "team", Name: "Team policy", Enabled: true, DomainThresholds: []int{30, 90, 30}, CertificateThresholds: []int{14, 3}, StaleAfterHours: 12}); err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := engine.GetRule("team")
+	if !ok || len(rule.DomainThresholds) != 2 || rule.DomainThresholds[0] != 30 || rule.DomainThresholds[1] != 90 {
+		t.Fatalf("normalized rule = %#v", rule)
+	}
+	if err := engine.DeleteRule("default"); err == nil {
+		t.Fatal("expected default rule deletion to fail")
+	}
+	if err := engine.DeleteRule("team"); err != nil {
+		t.Fatal(err)
+	}
+}

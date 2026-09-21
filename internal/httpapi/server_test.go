@@ -178,6 +178,30 @@ func TestWorkspaceMemberManagementEndpoints(t *testing.T) {
 	}
 }
 
+func TestAlertRuleManagementEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", strings.NewReader(`{"name":"Production certificates","domain_thresholds":[30,7],"certificate_thresholds":[14,3],"stale_after_hours":12,"providers":["cloudflare"]}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"id":"production-certificates"`) {
+		t.Fatalf("create alert rule response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/alert-rules/production-certificates", strings.NewReader(`{"enabled":false,"stale_after_hours":24}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"enabled":false`) || !strings.Contains(response.Body.String(), `"stale_after_hours":24`) {
+		t.Fatalf("update alert rule response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/alert-rules/production-certificates", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete alert rule response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestSyncAndInventoryEndpoints(t *testing.T) {
 	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
 	store := catalog.NewStore()
