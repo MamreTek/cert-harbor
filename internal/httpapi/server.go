@@ -545,8 +545,9 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
-func (s *Server) alertList(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Alerts()})
+func (s *Server) alertList(w http.ResponseWriter, r *http.Request) {
+	items, total := s.alerts.ListAlerts(page(r), pageSize(r), r.URL.Query().Get("state"), r.URL.Query().Get("provider"))
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page(r), "page_size": pageSize(r)})
 }
 
 func (s *Server) alertDetail(w http.ResponseWriter, r *http.Request) {

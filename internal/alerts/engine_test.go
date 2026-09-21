@@ -105,6 +105,32 @@ func TestEvaluateCreatesInvalidCertificateAlertFromProviderStatus(t *testing.T) 
 	}
 }
 
+func TestListAlertsPaginatesAndFilters(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	certificates := make([]domain.Certificate, 0, 3)
+	for index := 0; index < 3; index++ {
+		certificates = append(certificates, domain.Certificate{ID: "certificate-" + string(rune('a'+index)), ConnectionID: "connection", Provider: string(providers.Cloudflare), CommonName: "example-" + string(rune('a'+index)) + ".com", ValidTo: now.Add(3 * 24 * time.Hour), LastSeenAt: now})
+	}
+	if err := store.ReplaceAssets("connection", now, nil, certificates); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewEngine(store)
+	engine.now = func() time.Time { return now }
+	engine.Evaluate()
+	items, total := engine.ListAlerts(1, 2, StateOpen, "cloudflare")
+	if total != 3 || len(items) != 2 {
+		t.Fatalf("paged alerts = total %d items %#v", total, items)
+	}
+	items, total = engine.ListAlerts(2, 2, StateOpen, "cloudflare")
+	if total != 3 || len(items) != 1 {
+		t.Fatalf("second alert page = total %d items %#v", total, items)
+	}
+}
+
 func TestAlertRuleCRUDNormalizesThresholdsAndProtectsDefault(t *testing.T) {
 	engine := NewEngine(catalog.NewStore())
 	if err := engine.AddRule(Rule{ID: "team", Name: "Team policy", Enabled: true, DomainThresholds: []int{30, 90, 30}, CertificateThresholds: []int{14, 3}, StaleAfterHours: 12}); err != nil {

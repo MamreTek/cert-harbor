@@ -53,7 +53,7 @@ The inventory API currently provides:
 - `GET /api/v1/domains` and `GET /api/v1/certificates` with `search`, `provider`, `owner`, `environment`, `status`, `expiry_state` (`healthy`, `expiring`, `expired`, `stale`, or `unknown`), `tag`, `stale`, `expires_before`, `expires_after`, `sort`, `order`, `page`, and `page_size` filters
 - `GET /api/v1/export/domains.csv` and `GET /api/v1/export/certificates.csv` for complete filtered, secret-free CSV exports (not limited by the 200-row API page size)
 - `GET /api/v1/sync-runs`, `GET /api/v1/sync-runs/{id}`, and `GET /api/v1/catalog/summary`
-- `GET/POST/PATCH/DELETE /api/v1/alert-rules`, `GET /api/v1/alerts`, `GET /api/v1/alerts/{id}`, and `GET /api/v1/alert-events`
+- `GET/POST/PATCH/DELETE /api/v1/alert-rules`, paginated `GET /api/v1/alerts` with `state`/`provider` filters, `GET /api/v1/alerts/{id}`, and `GET /api/v1/alert-events`
 - `POST /api/v1/monitor/evaluate` plus alert `acknowledge`, `resolve`, and `suppress` actions
 - `GET /api/v1/audit-events` with stable page/page-size pagination
 - `GET/POST/PATCH/DELETE /api/v1/notification-channels`, channel test, alert notify, and `GET /api/v1/notification-deliveries`

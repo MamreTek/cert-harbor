@@ -225,6 +225,38 @@ func (e *Engine) Alerts() []Alert {
 	return e.listAlertsLocked()
 }
 
+func (e *Engine) ListAlerts(page, pageSize int, state, provider string) ([]Alert, int) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	items := make([]Alert, 0, len(e.alerts))
+	for _, alert := range e.alerts {
+		if state != "" && !strings.EqualFold(alert.State, state) {
+			continue
+		}
+		if provider != "" && !strings.EqualFold(alert.Provider, provider) {
+			continue
+		}
+		items = append(items, alert)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	total := len(items)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 50
+	}
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []Alert{}, total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return items[start:end], total
+}
+
 func (e *Engine) Get(id string) (Alert, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
