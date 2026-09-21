@@ -190,10 +190,10 @@ func TestWorkspaceMemberManagementEndpoints(t *testing.T) {
 
 func TestAlertRuleManagementEndpoints(t *testing.T) {
 	server := NewServer(config.Config{Env: "development"})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", strings.NewReader(`{"name":"Production certificates","domain_thresholds":[30,7],"certificate_thresholds":[14,3],"stale_after_hours":12,"providers":["cloudflare"]}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", strings.NewReader(`{"name":"Production certificates","domain_thresholds":[30,7],"certificate_thresholds":[14,3],"stale_after_hours":12,"asset_types":["certificate"],"providers":["cloudflare"]}`))
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"id":"production-certificates"`) {
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"id":"production-certificates"`) || !strings.Contains(response.Body.String(), `"asset_types":["certificate"]`) {
 		t.Fatalf("create alert rule response = %d %s", response.Code, response.Body.String())
 	}
 
