@@ -65,6 +65,40 @@ type Adapter interface {
 	ListCertificates(context.Context, Credentials, string) (CertificatePage, error)
 }
 
+// CredentialSwitchAdapter uses the live adapter when credentials are present
+// and keeps the deterministic fixture adapter available for demo mode.
+type CredentialSwitchAdapter struct {
+	fixture Adapter
+	live    Adapter
+}
+
+func NewCredentialSwitchAdapter(fixture, live Adapter) Adapter {
+	return &CredentialSwitchAdapter{fixture: fixture, live: live}
+}
+
+func (a *CredentialSwitchAdapter) Provider() Provider { return a.fixture.Provider() }
+
+func (a *CredentialSwitchAdapter) Capabilities() Capabilities { return a.fixture.Capabilities() }
+
+func (a *CredentialSwitchAdapter) selected(credentials Credentials) Adapter {
+	if a.live != nil && len(credentials.Values) > 0 {
+		return a.live
+	}
+	return a.fixture
+}
+
+func (a *CredentialSwitchAdapter) Test(ctx context.Context, credentials Credentials) (TestResult, error) {
+	return a.selected(credentials).Test(ctx, credentials)
+}
+
+func (a *CredentialSwitchAdapter) ListDomains(ctx context.Context, credentials Credentials, cursor string) (DomainPage, error) {
+	return a.selected(credentials).ListDomains(ctx, credentials, cursor)
+}
+
+func (a *CredentialSwitchAdapter) ListCertificates(ctx context.Context, credentials Credentials, cursor string) (CertificatePage, error) {
+	return a.selected(credentials).ListCertificates(ctx, credentials, cursor)
+}
+
 type fixturePayload struct {
 	Domains      []domain.Domain      `json:"domains"`
 	Certificates []domain.Certificate `json:"certificates"`

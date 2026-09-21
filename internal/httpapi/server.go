@@ -407,7 +407,7 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
-	s.alerts.Evaluate()
+	s.dispatchAlerts(r, s.alerts.Evaluate())
 	_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "succeeded")
 	writeJSON(w, http.StatusOK, run)
 }
@@ -586,6 +586,7 @@ func (s *Server) alertEvents(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) evaluateAlerts(w http.ResponseWriter, r *http.Request) {
 	items := s.alerts.Evaluate()
+	s.dispatchAlerts(r, items)
 	_ = s.audit(r, "alert.evaluate", "monitor", "default", "succeeded")
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -757,10 +758,23 @@ func (s *Server) notifyAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deliveries := s.notifications.Dispatch(r.Context(), alert)
+	s.auditDeliveries(r, deliveries)
+	writeJSON(w, http.StatusOK, map[string]any{"items": deliveries})
+}
+
+func (s *Server) dispatchAlerts(r *http.Request, alerts []alerting.Alert) {
+	for _, alert := range alerts {
+		if alert.State == alerting.StateResolved || alert.State == alerting.StateSuppressed {
+			continue
+		}
+		s.auditDeliveries(r, s.notifications.Dispatch(r.Context(), alert))
+	}
+}
+
+func (s *Server) auditDeliveries(r *http.Request, deliveries []notifications.Delivery) {
 	for _, delivery := range deliveries {
 		_ = s.audit(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": deliveries})
 }
 
 func (s *Server) audit(r *http.Request, action, objectType, objectID, outcome string) error {

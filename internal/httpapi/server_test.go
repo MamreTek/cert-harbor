@@ -11,8 +11,10 @@ import (
 	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
+	"github.com/MamreTek/cert-harbor/internal/notifications"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
+	"github.com/MamreTek/cert-harbor/internal/security"
 	"github.com/MamreTek/cert-harbor/internal/syncer"
 )
 
@@ -199,6 +201,40 @@ func TestAlertRuleManagementEndpoints(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("delete alert rule response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSyncAutomaticallyDispatchesOpenAlerts(t *testing.T) {
+	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "demo-cloudflare", Name: "Demo Cloudflare", Provider: providers.Cloudflare, Enabled: true, FixturePath: fixture}); err != nil {
+		t.Fatal(err)
+	}
+	box, err := security.NewSecretBox("test-encryption-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := box.Encrypt([]byte("webhook-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+	notificationService := notifications.NewService(box)
+	if err := notificationService.AddChannel(notifications.Channel{ID: "ops", Name: "Ops", Kind: notifications.KindWebhook, Endpoint: webhook.URL, Enabled: true, SigningSecretCiphertext: secret}); err != nil {
+		t.Fatal(err)
+	}
+	alerts := alerting.NewEngine(store)
+	server := NewServer(config.Config{Env: "development", FixturePath: fixture, EncryptionKey: "test-encryption-key"}, Dependencies{Store: store, Syncer: syncer.New(store, registry.New(fixture)), Alerts: alerts, Secrets: box, Notifications: notificationService})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections/demo-cloudflare/sync", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || requests == 0 || len(notificationService.Deliveries()) == 0 || notificationService.Deliveries()[0].Status != "delivered" {
+		t.Fatalf("automatic dispatch response=%d requests=%d deliveries=%#v body=%s", response.Code, requests, notificationService.Deliveries(), response.Body.String())
 	}
 }
 

@@ -305,7 +305,7 @@ func (s *Service) sendWebhook(ctx context.Context, channel Channel, alert alerts
 	if err != nil {
 		return errors.New("webhook signing secret cannot be decrypted")
 	}
-	body, err := json.Marshal(map[string]any{"alert": alert, "sent_at": s.now().Format(time.RFC3339)})
+	body, err := json.Marshal(map[string]any{"alert": alert, "deep_link": "/alerts/" + alert.ID, "sent_at": s.now().Format(time.RFC3339)})
 	if err != nil {
 		return err
 	}

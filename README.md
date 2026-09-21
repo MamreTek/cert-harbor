@@ -39,7 +39,7 @@ curl http://localhost:8080/api/v1/domains
 curl http://localhost:8080/api/v1/certificates
 ```
 
-The same flow works with Compose by setting `CERT_HARBOR_DEMO=1` in `.env` before `docker compose up --build`. The current fixture adapters establish the shared contract and deterministic reconciliation path; live provider SDK/API calls and delivery integrations remain subsequent implementation slices.
+The same flow works with Compose by setting `CERT_HARBOR_DEMO=1` in `.env` before `docker compose up --build`. Fixture mode establishes the shared contract and deterministic reconciliation path. Cloudflare connections with encrypted credentials use the live API adapter; Alibaba Cloud, Tencent/DNSPod, and AWS remain fixture-backed until their signed/API-SDK adapters are added.
 
 The scheduler runs enabled connections once per configured interval (daily by default). Set `CERT_HARBOR_SYNC_INTERVAL=15m` or another Go duration for local testing. The catalog, alert state, and notification state use `CERT_HARBOR_DATA_PATH`, `CERT_HARBOR_ALERTS_PATH`, and `CERT_HARBOR_NOTIFICATIONS_PATH`; Compose defaults all three to the persistent `/app/data` volume.
 
@@ -60,7 +60,7 @@ The inventory API currently provides:
 
 Provider credentials and webhook signing secrets are encrypted with the configured application key, omitted from API responses, and excluded from audit records. The catalog snapshot is written atomically to `CERT_HARBOR_DATA_PATH` (the Compose deployment persists it in the `cert_harbor_data` volume). The current adapters use the bundled fixture contract; live provider API clients and SMTP delivery remain follow-up implementation work.
 
-The read-only permission checklist for the planned live adapters is in [`docs/provider-permissions.md`](docs/provider-permissions.md).
+The read-only permission checklist for live adapters is in [`docs/provider-permissions.md`](docs/provider-permissions.md).
 
 Production mode requires `CERT_HARBOR_ENCRYPTION_KEY`, `CERT_HARBOR_ADMIN_TOKEN`, and `CERT_HARBOR_VIEWER_TOKEN`. Copy `.env.example` to `.env` for local configuration; never commit real secrets.
 

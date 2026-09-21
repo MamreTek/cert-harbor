@@ -8,6 +8,7 @@ import (
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
+	"github.com/MamreTek/cert-harbor/internal/security"
 )
 
 func TestSyncPreservesAssetsWhenProviderFixtureFails(t *testing.T) {
@@ -31,3 +32,51 @@ func TestSyncPreservesAssetsWhenProviderFixtureFails(t *testing.T) {
 		t.Fatalf("failed sync changed last-known inventory: total=%d items=%#v", total, items)
 	}
 }
+
+type credentialProbeAdapter struct {
+	credentials providers.Credentials
+}
+
+func (a *credentialProbeAdapter) Provider() providers.Provider { return providers.Cloudflare }
+
+func (a *credentialProbeAdapter) Capabilities() providers.Capabilities {
+	return providers.Capabilities{Provider: providers.Cloudflare}
+}
+
+func (a *credentialProbeAdapter) Test(_ context.Context, credentials providers.Credentials) (providers.TestResult, error) {
+	a.credentials = credentials
+	return providers.TestResult{Provider: providers.Cloudflare, RequestID: "probe"}, nil
+}
+
+func (a *credentialProbeAdapter) ListDomains(context.Context, providers.Credentials, string) (providers.DomainPage, error) {
+	return providers.DomainPage{}, nil
+}
+
+func (a *credentialProbeAdapter) ListCertificates(context.Context, providers.Credentials, string) (providers.CertificatePage, error) {
+	return providers.CertificatePage{}, nil
+}
+
+func TestServiceDecryptsConnectionCredentialsBeforeProviderCalls(t *testing.T) {
+	box, err := security.NewSecretBox("encryption-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := box.EncryptMap(map[string]string{"token": "provider-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true, CredentialsStored: true, CredentialsCiphertext: ciphertext}); err != nil {
+		t.Fatal(err)
+	}
+	probe := &credentialProbeAdapter{}
+	service := New(store, map[providers.Provider]providers.Adapter{providers.Cloudflare: probe}, box)
+	if _, err := service.Test(context.Background(), "connection"); err != nil {
+		t.Fatal(err)
+	}
+	if probe.credentials.Values["token"] != "provider-secret" {
+		t.Fatalf("provider credentials = %#v", probe.credentials.Values)
+	}
+}
+
+var _ providers.Adapter = (*credentialProbeAdapter)(nil)
