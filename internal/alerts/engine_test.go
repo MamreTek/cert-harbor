@@ -146,6 +146,23 @@ func TestEvaluateCreatesInvalidCertificateAlertFromProviderStatus(t *testing.T) 
 	}
 }
 
+func TestEvaluateTreatsMissingCertificateExpiryAsUnknown(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	if err := store.ReplaceAssets("connection", now, nil, []domain.Certificate{{ID: "certificate", ConnectionID: "connection", Provider: string(providers.Cloudflare), CommonName: "example.com", LastSeenAt: now}}); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewEngine(store)
+	engine.now = func() time.Time { return now }
+	items := engine.Evaluate()
+	if len(items) != 1 || !strings.HasSuffix(items[0].ID, ":unknown") || items[0].Severity != "high" {
+		t.Fatalf("unknown certificate expiry alert = %#v", items)
+	}
+}
+
 func TestListAlertsPaginatesAndFilters(t *testing.T) {
 	store := catalog.NewStore()
 	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {

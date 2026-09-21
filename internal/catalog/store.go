@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -124,11 +125,44 @@ func (s *Store) Close() error {
 	return s.database.Close()
 }
 
+// recoverInterruptedSyncs makes a process restart visible instead of leaving
+// an old sync run permanently stuck in the running state.
+func (s *Store) recoverInterruptedSyncs() bool {
+	now := time.Now().UTC()
+	recovered := false
+	for index := range s.syncRuns {
+		if s.syncRuns[index].Status != "running" {
+			continue
+		}
+		run := &s.syncRuns[index]
+		run.Status = "failed"
+		run.FinishedAt = now
+		run.ErrorSummary = "service restarted before sync completed"
+		if connection, ok := s.connections[run.ConnectionID]; ok {
+			connection.Status = "unhealthy"
+			connection.LastSyncError = run.ErrorSummary
+			s.connections[run.ConnectionID] = connection
+		}
+		recovered = true
+	}
+	return recovered
+}
+
 // StateBackend returns the shared durable backend when the store uses
 // PostgreSQL. It returns nil for file-backed or in-memory stores.
 func (s *Store) StateBackend() StateBackend {
 	if db, ok := s.database.(*postgresDatabase); ok {
 		return db
+	}
+	return nil
+}
+
+// Ready verifies the external persistence dependency when one is configured.
+func (s *Store) Ready() error {
+	if db, ok := s.database.(*postgresDatabase); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return db.PingContext(ctx)
 	}
 	return nil
 }
@@ -397,12 +431,12 @@ func (s *Store) BeginSync(connectionID string, provider providers.Provider, now 
 	connection.LastSyncError = ""
 	s.connections[connectionID] = connection
 	run := SyncRun{
-		ID:            "sync-" + now.Format("20060102T150405.000000000Z"),
+		ID:            "sync-" + connectionID + "-" + now.Format("20060102T150405.000000000Z"),
 		ConnectionID:  connectionID,
 		Provider:      string(provider),
 		StartedAt:     now,
 		Status:        "running",
-		CorrelationID: "corr-" + now.Format("20060102T150405.000000000Z"),
+		CorrelationID: "corr-" + connectionID + "-" + now.Format("20060102T150405.000000000Z"),
 	}
 	s.syncRuns = append(s.syncRuns, run)
 	if err := s.persistLocked(); err != nil {
@@ -732,7 +766,7 @@ func expiryState(expiresAt *time.Time, stale bool) string {
 	if stale {
 		return "stale"
 	}
-	if expiresAt == nil {
+	if expiresAt == nil || expiresAt.IsZero() {
 		return "unknown"
 	}
 	days := int(time.Until(*expiresAt) / (24 * time.Hour))
@@ -743,6 +777,12 @@ func expiryState(expiresAt *time.Time, stale bool) string {
 		return "expiring"
 	}
 	return "healthy"
+}
+
+// DeriveExpiryState exposes the same default inventory state calculation used
+// by filters so API responses and exports can include the derived value.
+func DeriveExpiryState(expiresAt *time.Time, stale bool) string {
+	return expiryState(expiresAt, stale)
 }
 
 func matchesDomain(filter Filter, item domain.Domain) bool {

@@ -256,6 +256,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Domain', dataIndex: 'name', key: 'name' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
+      { title: 'Expiry state', dataIndex: 'expiry_state', key: 'expiry_state', render: (value) => value || 'Unknown' },
       { title: 'Nameservers', dataIndex: 'nameservers', key: 'nameservers', render: (value) => (value ?? []).join(', ') || 'Unknown' },
       { title: 'Last seen', dataIndex: 'last_seen_at', key: 'last_seen_at' },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
@@ -268,6 +269,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Common name', dataIndex: 'common_name', key: 'common_name' },
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },
       { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
+      { title: 'Expiry state', dataIndex: 'expiry_state', key: 'expiry_state', render: (value) => value || 'Unknown' },
       { title: 'Valid to', dataIndex: 'valid_to', key: 'valid_to' },
       { title: 'Region', dataIndex: 'region', key: 'region', render: (value) => value || '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
@@ -364,6 +366,7 @@ export function App({ fetcher = defaultFetcher }) {
           <Descriptions.Item label="Environment">{detailItem.environment || 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Tags">{(detailItem.tags || []).join(', ') || 'None'}</Descriptions.Item>
           <Descriptions.Item label="Status">{detailItem.status || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Expiry state">{detailItem.expiry_state || 'Unknown'}</Descriptions.Item>
           {detailKind === 'Certificate' && <>
             <Descriptions.Item label="Issuer">{detailItem.issuer || 'Unknown'}</Descriptions.Item>
             <Descriptions.Item label="SANs">{(detailItem.sans || []).join(', ') || 'None'}</Descriptions.Item>

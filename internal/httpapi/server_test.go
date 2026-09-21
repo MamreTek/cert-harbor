@@ -296,7 +296,7 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 1 || len(body.Items) != 1 || body.Items[0]["source_id"] != "zone-demo-example" {
+	if body.Total != 1 || len(body.Items) != 1 || body.Items[0]["source_id"] != "zone-demo-example" || body.Items[0]["expiry_state"] != "healthy" {
 		t.Fatalf("unexpected domain response: %#v", body)
 	}
 

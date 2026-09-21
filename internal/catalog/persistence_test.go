@@ -75,3 +75,32 @@ func TestRotateCredentialsPreservesConnection(t *testing.T) {
 		t.Fatalf("rotated connection=%#v values=%#v err=%v", connection, values, err)
 	}
 }
+
+func TestOpenStoreRecoversInterruptedSync(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddConnection(Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginSync("connection", providers.Cloudflare, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := reopened.ListSyncRuns()
+	if len(runs) != 1 || runs[0].Status != "failed" || runs[0].ErrorSummary == "" {
+		t.Fatalf("recovered sync runs = %#v", runs)
+	}
+	connection, _ := reopened.GetConnection("connection")
+	if connection.Status != "unhealthy" {
+		t.Fatalf("recovered connection status = %#v", connection)
+	}
+}

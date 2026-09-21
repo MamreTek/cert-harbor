@@ -14,6 +14,7 @@ type Domain struct {
 	Status            string     `json:"status,omitempty"`
 	Nameservers       []string   `json:"nameservers,omitempty"`
 	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	ExpiryState       string     `json:"expiry_state,omitempty"`
 	Owner             string     `json:"owner,omitempty"`
 	Environment       string     `json:"environment,omitempty"`
 	Tags              []string   `json:"tags,omitempty"`
@@ -35,6 +36,7 @@ type Certificate struct {
 	Fingerprint  string    `json:"fingerprint,omitempty"`
 	ValidFrom    time.Time `json:"valid_from"`
 	ValidTo      time.Time `json:"valid_to"`
+	ExpiryState  string    `json:"expiry_state,omitempty"`
 	Region       string    `json:"region,omitempty"`
 	Owner        string    `json:"owner,omitempty"`
 	Environment  string    `json:"environment,omitempty"`

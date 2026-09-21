@@ -70,6 +70,7 @@ func OpenStore(path string, databaseURLs ...string) (*Store, error) {
 						_ = db.Close()
 						return nil, fmt.Errorf("migrate legacy catalog snapshot: %w", err)
 					}
+					store.recoverInterruptedSyncs()
 					if err := store.persistLocked(); err != nil {
 						_ = db.Close()
 						return nil, fmt.Errorf("persist migrated catalog snapshot: %w", err)
@@ -81,6 +82,12 @@ func OpenStore(path string, databaseURLs ...string) (*Store, error) {
 		if err := store.restore(data); err != nil {
 			_ = db.Close()
 			return nil, err
+		}
+		if store.recoverInterruptedSyncs() {
+			if err := store.persistLocked(); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("persist recovered sync state: %w", err)
+			}
 		}
 		return store, nil
 	}
@@ -96,6 +103,11 @@ func OpenStore(path string, databaseURLs ...string) (*Store, error) {
 	}
 	if err := store.restore(data); err != nil {
 		return nil, err
+	}
+	if store.recoverInterruptedSyncs() {
+		if err := store.persistLocked(); err != nil {
+			return nil, fmt.Errorf("persist recovered sync state: %w", err)
+		}
 	}
 	return store, nil
 }

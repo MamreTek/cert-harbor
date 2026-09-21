@@ -16,6 +16,7 @@ import (
 	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
+	"github.com/MamreTek/cert-harbor/internal/domain"
 	observability "github.com/MamreTek/cert-harbor/internal/metrics"
 	"github.com/MamreTek/cert-harbor/internal/notifications"
 	"github.com/MamreTek/cert-harbor/internal/providers"
@@ -190,6 +191,10 @@ func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "error": err.Error()})
 		return
 	}
+	if err := s.store.Ready(); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "error": "persistence dependency is unavailable"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
@@ -273,7 +278,10 @@ func (s *Server) updateMember(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "member.update", "member", member.ID, "succeeded")
+	if err := s.audit(r, "member.update", "member", member.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "member updated but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, member)
 }
 
@@ -282,7 +290,10 @@ func (s *Server) deleteMember(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "member.remove", "member", r.PathValue("id"), "succeeded")
+	if err := s.audit(r, "member.remove", "member", r.PathValue("id"), "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "member removed but audit event could not be recorded"})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -433,11 +444,17 @@ func slug(value string) string {
 func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 	result, err := s.syncer.Test(r.Context(), r.PathValue("id"))
 	if err != nil {
-		_ = s.audit(r, "provider_connection.test", "provider_connection", r.PathValue("id"), "failed")
+		if auditErr := s.audit(r, "provider_connection.test", "provider_connection", r.PathValue("id"), "failed"); auditErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "provider test failed and audit event could not be recorded"})
+			return
+		}
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "provider_connection.test", "provider_connection", r.PathValue("id"), "succeeded")
+	if auditErr := s.audit(r, "provider_connection.test", "provider_connection", r.PathValue("id"), "succeeded"); auditErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "provider test succeeded but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -445,7 +462,10 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 	run, err := s.syncer.Sync(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.metrics.Inc("sync_failures_total")
-		_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "failed")
+		if auditErr := s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "failed"); auditErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "sync failed and audit event could not be recorded"})
+			return
+		}
 		status := http.StatusUnprocessableEntity
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -455,12 +475,16 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	s.metrics.Inc("sync_runs_total")
 	s.dispatchAlerts(r, s.alerts.Evaluate())
-	_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "succeeded")
+	if auditErr := s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "succeeded"); auditErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "sync succeeded but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, run)
 }
 
 func (s *Server) domains(w http.ResponseWriter, r *http.Request) {
 	items, total := s.store.ListDomains(parseFilter(r))
+	decorateDomains(items)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page(r), "page_size": pageSize(r)})
 }
 
@@ -470,11 +494,13 @@ func (s *Server) domainDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "domain not found"})
 		return
 	}
+	item.ExpiryState = catalog.DeriveExpiryState(item.ExpiresAt, item.Stale)
 	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) certificates(w http.ResponseWriter, r *http.Request) {
 	items, total := s.store.ListCertificates(parseFilter(r))
+	decorateCertificates(items)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": page(r), "page_size": pageSize(r)})
 }
 
@@ -484,19 +510,20 @@ func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "certificate not found"})
 		return
 	}
+	item.ExpiryState = catalog.DeriveExpiryState(&item.ValidTo, item.Stale)
 	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
 	items := s.store.ListDomainsForExport(filter)
-	rows := [][]string{{"id", "provider", "source_id", "name", "registrable_domain", "zone", "registrar", "status", "nameservers", "owner", "environment", "tags", "expires_at", "last_seen_at", "stale", "source_url"}}
+	rows := [][]string{{"id", "provider", "source_id", "name", "registrable_domain", "zone", "registrar", "status", "nameservers", "owner", "environment", "tags", "expiry_state", "expires_at", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		expiresAt := ""
 		if item.ExpiresAt != nil {
 			expiresAt = item.ExpiresAt.UTC().Format(time.RFC3339)
 		}
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.Name, item.RegistrableDomain, item.Zone, item.Registrar, item.Status, strings.Join(item.Nameservers, ";"), item.Owner, item.Environment, strings.Join(item.Tags, ";"), expiresAt, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.Name, item.RegistrableDomain, item.Zone, item.Registrar, item.Status, strings.Join(item.Nameservers, ";"), item.Owner, item.Environment, strings.Join(item.Tags, ";"), catalog.DeriveExpiryState(item.ExpiresAt, item.Stale), expiresAt, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "domains.csv", rows)
 }
@@ -504,9 +531,9 @@ func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 func (s *Server) exportCertificates(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
 	items := s.store.ListCertificatesForExport(filter)
-	rows := [][]string{{"id", "provider", "source_id", "common_name", "sans", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "last_seen_at", "stale", "source_url"}}
+	rows := [][]string{{"id", "provider", "source_id", "common_name", "sans", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "expiry_state", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), catalog.DeriveExpiryState(&item.ValidTo, item.Stale), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "certificates.csv", rows)
 }
@@ -519,6 +546,18 @@ func writeCSV(w http.ResponseWriter, filename string, rows [][]string) {
 		_ = writer.Write(row)
 	}
 	writer.Flush()
+}
+
+func decorateDomains(items []domain.Domain) {
+	for index := range items {
+		items[index].ExpiryState = catalog.DeriveExpiryState(items[index].ExpiresAt, items[index].Stale)
+	}
+}
+
+func decorateCertificates(items []domain.Certificate) {
+	for index := range items {
+		items[index].ExpiryState = catalog.DeriveExpiryState(&items[index].ValidTo, items[index].Stale)
+	}
 }
 
 func (s *Server) syncRuns(w http.ResponseWriter, r *http.Request) {
@@ -613,7 +652,10 @@ func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "alert_rule.create", "alert_rule", rule.ID, "succeeded")
+	if err := s.audit(r, "alert_rule.create", "alert_rule", rule.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "alert rule created but audit event could not be recorded"})
+		return
+	}
 	created, _ := s.alerts.GetRule(rule.ID)
 	writeJSON(w, http.StatusCreated, created)
 }
@@ -661,7 +703,10 @@ func (s *Server) updateAlertRule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "alert_rule.update", "alert_rule", updated.ID, "succeeded")
+	if err := s.audit(r, "alert_rule.update", "alert_rule", updated.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "alert rule updated but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -670,7 +715,10 @@ func (s *Server) deleteAlertRule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "alert_rule.delete", "alert_rule", r.PathValue("id"), "succeeded")
+	if err := s.audit(r, "alert_rule.delete", "alert_rule", r.PathValue("id"), "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "alert rule deleted but audit event could not be recorded"})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -683,7 +731,10 @@ func (s *Server) alertEvents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) evaluateAlerts(w http.ResponseWriter, r *http.Request) {
 	items := s.alerts.Evaluate()
 	s.dispatchAlerts(r, items)
-	_ = s.audit(r, "alert.evaluate", "monitor", "default", "succeeded")
+	if err := s.audit(r, "alert.evaluate", "monitor", "default", "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "alert evaluation completed but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
@@ -715,7 +766,10 @@ func (s *Server) transitionAlert(w http.ResponseWriter, r *http.Request, state s
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "alert."+state, "alert", alert.ID, "succeeded")
+	if err := s.audit(r, "alert."+state, "alert", alert.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "alert changed but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, alert)
 }
 
@@ -789,7 +843,10 @@ func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Reques
 	}
 	for _, item := range s.notifications.Channels() {
 		if item.ID == request.ID {
-			_ = s.audit(r, "notification_channel.create", "notification_channel", request.ID, "succeeded")
+			if err := s.audit(r, "notification_channel.create", "notification_channel", request.ID, "succeeded"); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "channel created but audit event could not be recorded"})
+				return
+			}
 			writeJSON(w, http.StatusCreated, item)
 			return
 		}
@@ -856,7 +913,10 @@ func (s *Server) updateNotificationChannel(w http.ResponseWriter, r *http.Reques
 		}
 		channel, _ = findChannel(s.notifications.Channels(), existing.ID)
 	}
-	_ = s.audit(r, "notification_channel.update", "notification_channel", existing.ID, "succeeded")
+	if err := s.audit(r, "notification_channel.update", "notification_channel", existing.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "channel updated but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, channel)
 }
 
@@ -865,7 +925,10 @@ func (s *Server) deleteNotificationChannel(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	_ = s.audit(r, "notification_channel.delete", "notification_channel", r.PathValue("id"), "succeeded")
+	if err := s.audit(r, "notification_channel.delete", "notification_channel", r.PathValue("id"), "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "channel deleted but audit event could not be recorded"})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -875,7 +938,10 @@ func (s *Server) testNotificationChannel(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		outcome = "failed"
 	}
-	_ = s.audit(r, "notification_channel.test", "notification_channel", r.PathValue("id"), outcome)
+	if auditErr := s.audit(r, "notification_channel.test", "notification_channel", r.PathValue("id"), outcome); auditErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "channel test completed but audit event could not be recorded"})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "delivery": delivery})
 		return
@@ -897,7 +963,10 @@ func (s *Server) notifyAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.notifications.Queue(alert)
 	deliveries := s.notifications.DeliverOutbox(r.Context())
-	s.auditDeliveries(r, deliveries)
+	if err := s.auditDeliveries(r, deliveries); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "notification completed but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": deliveries})
 }
 
@@ -907,18 +976,24 @@ func (s *Server) dispatchAlerts(r *http.Request, alerts []alerting.Alert) {
 			continue
 		}
 		_ = s.notifications.Queue(alert)
-		s.auditDeliveries(r, s.notifications.DeliverOutbox(r.Context()))
+		if err := s.auditDeliveries(r, s.notifications.DeliverOutbox(r.Context())); err != nil {
+			s.logger.Error("notification_audit_failed", "error", err)
+		}
 	}
 }
 
-func (s *Server) auditDeliveries(r *http.Request, deliveries []notifications.Delivery) {
+func (s *Server) auditDeliveries(r *http.Request, deliveries []notifications.Delivery) error {
+	var firstErr error
 	for _, delivery := range deliveries {
 		s.metrics.Inc("notification_deliveries_total")
 		if delivery.Status != "delivered" {
 			s.metrics.Inc("notification_failures_total")
 		}
-		_ = s.audit(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status)
+		if err := s.audit(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
+	return firstErr
 }
 
 func (s *Server) audit(r *http.Request, action, objectType, objectID, outcome string) error {

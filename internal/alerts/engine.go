@@ -487,8 +487,8 @@ func expiryState(expiresAt *time.Time, stale bool, thresholds []int, now time.Ti
 	if stale {
 		return "stale", "high", nil
 	}
-	if expiresAt == nil {
-		return "healthy", "", nil
+	if expiresAt == nil || expiresAt.IsZero() {
+		return "unknown", "high", nil
 	}
 	days := int(expiresAt.Sub(now) / (24 * time.Hour))
 	if expiresAt.Before(now) {
