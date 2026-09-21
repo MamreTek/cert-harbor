@@ -74,7 +74,8 @@ In production, send either `Authorization: Bearer <token>` or `X-CertHarbor-Toke
 
 ```sh
 go test ./...
-go vet ./...
+make lint
+make api-race
 cd web && npm test && npm run build
 cd .. && docker compose config
 ```
