@@ -81,6 +81,7 @@ func TestCertificateExpiryStateIncludesProviderTerminalStatus(t *testing.T) {
 		{ID: "revoked", Provider: string(providers.Cloudflare), CommonName: "revoked.example", Status: "REVOKED", ValidTo: now.Add(180 * 24 * time.Hour)},
 		{ID: "invalid", Provider: string(providers.Cloudflare), CommonName: "invalid.example", Status: "validation_failed", ValidTo: now.Add(180 * 24 * time.Hour)},
 		{ID: "expiring", Provider: string(providers.Cloudflare), CommonName: "expiring.example", Status: "ISSUED", ValidTo: now.Add(10 * 24 * time.Hour)},
+		{ID: "unknown", Provider: string(providers.Cloudflare), CommonName: "unknown.example", Status: "ISSUED"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +93,10 @@ func TestCertificateExpiryStateIncludesProviderTerminalStatus(t *testing.T) {
 	}
 	if got := DeriveCertificateExpiryState(domain.Certificate{Status: "REVOKED", ValidTo: now.Add(180 * 24 * time.Hour)}); got != "revoked" {
 		t.Fatalf("revoked certificate state = %q", got)
+	}
+	items, total := store.ListCertificates(Filter{ExpiresBefore: timePtr(now.Add(30 * 24 * time.Hour)), Page: 1, PageSize: 50})
+	if total != 1 || len(items) != 1 || items[0].CommonName != "expiring.example" {
+		t.Fatalf("expiry window included terminal or unknown certificates: total=%d items=%#v", total, items)
 	}
 }
 

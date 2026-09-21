@@ -754,10 +754,10 @@ func matches(filter Filter, provider, name, owner, environment string, stale boo
 	if filter.Tag != "" && !containsFold(tags, filter.Tag) {
 		return false
 	}
-	if filter.ExpiresBefore != nil && (expiresAt == nil || expiresAt.After(*filter.ExpiresBefore)) {
+	if filter.ExpiresBefore != nil && (expiresAt == nil || expiresAt.IsZero() || expiresAt.After(*filter.ExpiresBefore)) {
 		return false
 	}
-	if filter.ExpiresAfter != nil && (expiresAt == nil || expiresAt.Before(*filter.ExpiresAfter)) {
+	if filter.ExpiresAfter != nil && (expiresAt == nil || expiresAt.IsZero() || expiresAt.Before(*filter.ExpiresAfter)) {
 		return false
 	}
 	if filter.ExpiryState != "" && !strings.EqualFold(filter.ExpiryState, expiryState(expiresAt, stale)) {
