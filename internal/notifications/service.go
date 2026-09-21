@@ -150,7 +150,13 @@ func OpenService(secrets *security.SecretBox, path string, backends ...catalog.S
 	}
 	service.deliveries = snapshot.Deliveries
 	service.outbox = snapshot.Outbox
-	for _, delivery := range service.deliveries {
+	legacyCorrelation := false
+	for index := range service.deliveries {
+		delivery := &service.deliveries[index]
+		if delivery.CorrelationID == "" {
+			delivery.CorrelationID = "corr-" + delivery.ID
+			legacyCorrelation = true
+		}
 		if len(delivery.ID) > len("delivery-") {
 			if id, parseErr := strconv.ParseUint(delivery.ID[len("delivery-"):], 10, 64); parseErr == nil && id > service.nextID {
 				service.nextID = id
@@ -164,7 +170,7 @@ func OpenService(secrets *security.SecretBox, path string, backends ...catalog.S
 			}
 		}
 	}
-	if migratedFromFile {
+	if migratedFromFile || legacyCorrelation {
 		if err := service.persistLocked(); err != nil {
 			return nil, fmt.Errorf("migrate legacy notification state: %w", err)
 		}
