@@ -22,13 +22,23 @@ npm install
 npm run dev
 ```
 
-Or run the packaged application:
+Or run the packaged application with Docker Compose:
 
 ```sh
+cp .env.example .env
 docker compose up --build
 ```
 
 The application is available at <http://localhost:8080>. The API exposes `/healthz`, `/readyz`, and `/api/v1/meta`.
+
+The Compose stack runs the API and PostgreSQL together. Stop it with `Ctrl-C`, or run `docker compose down`; persistent data is kept in the `cert_harbor_data` and `cert_harbor_postgres` volumes. To start a disposable local demo, set `CERT_HARBOR_DEMO=1` in `.env`, rebuild, and then synchronize the bundled fixture:
+
+```sh
+CERT_HARBOR_DEMO=1 docker compose up --build
+curl -X POST http://localhost:8080/api/v1/provider-connections/demo-cloudflare/sync
+```
+
+For a clean demo reset, stop the stack and remove only its named volumes with `docker compose down -v`.
 
 To run the repeatable local demo connection and synchronize the bundled sample assets:
 

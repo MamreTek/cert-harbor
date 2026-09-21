@@ -1,4 +1,4 @@
-.PHONY: api-test api-vet api-race lint web-test web-build compose-config test
+.PHONY: api-test api-vet api-race lint web-test web-build compose-config docker-up docker-down test
 
 api-test:
 	go test ./...
@@ -19,5 +19,11 @@ web-build:
 
 compose-config:
 	docker compose config
+
+docker-up:
+	docker compose up --build
+
+docker-down:
+	docker compose down
 
 test: api-test lint web-test web-build compose-config
