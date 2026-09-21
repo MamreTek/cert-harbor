@@ -1,6 +1,7 @@
 package alerts
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,6 +35,37 @@ func TestEvaluateCreatesStableExpiringAlertAndTransitions(t *testing.T) {
 	}
 	if len(engine.Events()) != 1 || engine.Alerts()[0].State != StateAcknowledged {
 		t.Fatalf("missing acknowledgement event: %#v %#v", engine.Alerts(), engine.Events())
+	}
+}
+
+func TestOpenEngineRestoresAlertStateAndEvents(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "alerts", "state.json")
+	engine, err := OpenEngine(store, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	engine.now = func() time.Time { return now }
+	store.ReplaceAssets("connection", now, nil, []domain.Certificate{{
+		ID: "connection:certificate:cert", ConnectionID: "connection", Provider: string(providers.Cloudflare), CommonName: "example.com", ValidTo: now.Add(11 * 24 * time.Hour), LastSeenAt: now,
+	}})
+	items := engine.Evaluate()
+	if len(items) != 1 {
+		t.Fatalf("expected one persisted alert, got %#v", items)
+	}
+	if _, err := engine.Transition(items[0].ID, StateAcknowledged, "admin", "note"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenEngine(store, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reopened.Rules()) != 1 || len(reopened.Alerts()) != 1 || reopened.Alerts()[0].State != StateAcknowledged || len(reopened.Events()) != 1 {
+		t.Fatalf("unexpected restored state: rules=%#v alerts=%#v events=%#v", reopened.Rules(), reopened.Alerts(), reopened.Events())
 	}
 }
 

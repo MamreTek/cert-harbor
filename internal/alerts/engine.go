@@ -1,8 +1,11 @@
 package alerts
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -58,12 +61,13 @@ type Event struct {
 }
 
 type Engine struct {
-	mu      sync.RWMutex
-	catalog *catalog.Store
-	rules   map[string]Rule
-	alerts  map[string]Alert
-	events  []Event
-	now     func() time.Time
+	mu       sync.RWMutex
+	catalog  *catalog.Store
+	rules    map[string]Rule
+	alerts   map[string]Alert
+	events   []Event
+	filePath string
+	now      func() time.Time
 }
 
 func NewEngine(store *catalog.Store) *Engine {
@@ -82,6 +86,40 @@ func NewEngine(store *catalog.Store) *Engine {
 		StaleAfterHours:       26,
 	}
 	return engine
+}
+
+// OpenEngine restores alert rules, states, and transition events from an
+// atomically written snapshot. An absent path or file starts with defaults.
+func OpenEngine(store *catalog.Store, path string) (*Engine, error) {
+	engine := NewEngine(store)
+	engine.filePath = path
+	if path == "" {
+		return engine, nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return engine, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var snapshot struct {
+		Version int              `json:"version"`
+		Rules   map[string]Rule  `json:"rules"`
+		Alerts  map[string]Alert `json:"alerts"`
+		Events  []Event          `json:"events"`
+	}
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return nil, err
+	}
+	for id, rule := range snapshot.Rules {
+		engine.rules[id] = rule
+	}
+	if snapshot.Alerts != nil {
+		engine.alerts = snapshot.Alerts
+	}
+	engine.events = snapshot.Events
+	return engine, nil
 }
 
 func (e *Engine) Evaluate() []Alert {
@@ -109,6 +147,7 @@ func (e *Engine) Evaluate() []Alert {
 			}
 		}
 	}
+	_ = e.persistLocked()
 	return e.listAlertsLocked()
 }
 
@@ -159,7 +198,38 @@ func (e *Engine) Transition(id, state, actor, note string) (Alert, error) {
 	alert.Note = note
 	alert.UpdatedAt = now
 	e.alerts[id] = alert
+	if err := e.persistLocked(); err != nil {
+		return Alert{}, err
+	}
 	return alert, nil
+}
+
+func (e *Engine) persistLocked() error {
+	if e.filePath == "" {
+		return nil
+	}
+	snapshot := struct {
+		Version int              `json:"version"`
+		Rules   map[string]Rule  `json:"rules"`
+		Alerts  map[string]Alert `json:"alerts"`
+		Events  []Event          `json:"events"`
+	}{Version: 1, Rules: e.rules, Alerts: e.alerts, Events: e.events}
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(e.filePath), 0o700); err != nil {
+		return err
+	}
+	temporary := e.filePath + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, e.filePath); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
 }
 
 func (e *Engine) upsertAlert(alert Alert) {

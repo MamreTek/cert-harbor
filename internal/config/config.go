@@ -9,30 +9,34 @@ import (
 )
 
 type Config struct {
-	Env           string
-	Addr          string
-	AdminToken    string
-	ViewerToken   string
-	EncryptionKey string
-	WebDir        string
-	Demo          bool
-	FixturePath   string
-	DataPath      string
-	SyncInterval  time.Duration
+	Env               string
+	Addr              string
+	AdminToken        string
+	ViewerToken       string
+	EncryptionKey     string
+	WebDir            string
+	Demo              bool
+	FixturePath       string
+	DataPath          string
+	AlertsPath        string
+	NotificationsPath string
+	SyncInterval      time.Duration
 }
 
 func FromEnv() Config {
 	return Config{
-		Env:           valueOrDefault("CERT_HARBOR_ENV", "development"),
-		Addr:          valueOrDefault("CERT_HARBOR_ADDR", ":8080"),
-		AdminToken:    os.Getenv("CERT_HARBOR_ADMIN_TOKEN"),
-		ViewerToken:   os.Getenv("CERT_HARBOR_VIEWER_TOKEN"),
-		EncryptionKey: os.Getenv("CERT_HARBOR_ENCRYPTION_KEY"),
-		WebDir:        valueOrDefault("CERT_HARBOR_WEB_DIR", "web/dist"),
-		Demo:          boolFromEnv("CERT_HARBOR_DEMO"),
-		FixturePath:   valueOrDefault("CERT_HARBOR_FIXTURE_PATH", "examples/demo-fixture.json"),
-		DataPath:      valueOrDefault("CERT_HARBOR_DATA_PATH", "data/cert-harbor.json"),
-		SyncInterval:  durationFromEnv("CERT_HARBOR_SYNC_INTERVAL", 24*time.Hour),
+		Env:               valueOrDefault("CERT_HARBOR_ENV", "development"),
+		Addr:              valueOrDefault("CERT_HARBOR_ADDR", ":8080"),
+		AdminToken:        os.Getenv("CERT_HARBOR_ADMIN_TOKEN"),
+		ViewerToken:       os.Getenv("CERT_HARBOR_VIEWER_TOKEN"),
+		EncryptionKey:     os.Getenv("CERT_HARBOR_ENCRYPTION_KEY"),
+		WebDir:            valueOrDefault("CERT_HARBOR_WEB_DIR", "web/dist"),
+		Demo:              boolFromEnv("CERT_HARBOR_DEMO"),
+		FixturePath:       valueOrDefault("CERT_HARBOR_FIXTURE_PATH", "examples/demo-fixture.json"),
+		DataPath:          valueOrDefault("CERT_HARBOR_DATA_PATH", "data/cert-harbor.json"),
+		AlertsPath:        valueOrDefault("CERT_HARBOR_ALERTS_PATH", "data/cert-harbor-alerts.json"),
+		NotificationsPath: valueOrDefault("CERT_HARBOR_NOTIFICATIONS_PATH", "data/cert-harbor-notifications.json"),
+		SyncInterval:      durationFromEnv("CERT_HARBOR_SYNC_INTERVAL", 24*time.Hour),
 	}
 }
 

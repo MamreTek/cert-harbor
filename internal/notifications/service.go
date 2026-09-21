@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,6 +37,16 @@ type Channel struct {
 	SigningSecretCiphertext string `json:"-"`
 }
 
+type persistedChannel struct {
+	ID                      string `json:"id"`
+	Name                    string `json:"name"`
+	Kind                    string `json:"kind"`
+	Endpoint                string `json:"endpoint"`
+	Enabled                 bool   `json:"enabled"`
+	CredentialsStored       bool   `json:"credentials_stored"`
+	SigningSecretCiphertext string `json:"signing_secret_ciphertext,omitempty"`
+}
+
 type Delivery struct {
 	ID          string    `json:"id"`
 	ChannelID   string    `json:"channel_id"`
@@ -51,6 +64,7 @@ type Service struct {
 	channels   map[string]Channel
 	deliveries []Delivery
 	nextID     uint64
+	filePath   string
 	secrets    *security.SecretBox
 	client     *http.Client
 	now        func() time.Time
@@ -58,6 +72,49 @@ type Service struct {
 
 func NewService(secrets *security.SecretBox) *Service {
 	return &Service{channels: make(map[string]Channel), secrets: secrets, client: &http.Client{Timeout: 5 * time.Second}, now: func() time.Time { return time.Now().UTC() }}
+}
+
+// OpenService restores notification channels and delivery history from an
+// atomically written snapshot. An absent path or file starts empty.
+func OpenService(secrets *security.SecretBox, path string) (*Service, error) {
+	service := NewService(secrets)
+	service.filePath = path
+	if path == "" {
+		return service, nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return service, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var snapshot struct {
+		Version    int                         `json:"version"`
+		Channels   map[string]persistedChannel `json:"channels"`
+		Deliveries []Delivery                  `json:"deliveries"`
+	}
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return nil, err
+	}
+	if snapshot.Channels != nil {
+		for id, channel := range snapshot.Channels {
+			service.channels[id] = Channel{
+				ID: channel.ID, Name: channel.Name, Kind: channel.Kind, Endpoint: channel.Endpoint,
+				Enabled: channel.Enabled, CredentialsStored: channel.CredentialsStored,
+				SigningSecretCiphertext: channel.SigningSecretCiphertext,
+			}
+		}
+	}
+	service.deliveries = snapshot.Deliveries
+	for _, delivery := range service.deliveries {
+		if len(delivery.ID) > len("delivery-") {
+			if id, parseErr := strconv.ParseUint(delivery.ID[len("delivery-"):], 10, 64); parseErr == nil && id > service.nextID {
+				service.nextID = id
+			}
+		}
+	}
+	return service, nil
 }
 
 func (s *Service) AddChannel(channel Channel) error {
@@ -70,7 +127,7 @@ func (s *Service) AddChannel(channel Channel) error {
 		return errors.New("notification channel already exists")
 	}
 	s.channels[channel.ID] = channel
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Service) UpdateChannel(id, name, endpoint string, enabled bool) (Channel, error) {
@@ -88,6 +145,9 @@ func (s *Service) UpdateChannel(id, name, endpoint string, enabled bool) (Channe
 	}
 	channel.Enabled = enabled
 	s.channels[id] = channel
+	if err := s.persistLocked(); err != nil {
+		return Channel{}, err
+	}
 	return channel, nil
 }
 
@@ -98,7 +158,7 @@ func (s *Service) DeleteChannel(id string) error {
 		return errors.New("notification channel not found")
 	}
 	delete(s.channels, id)
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Service) SetSigningSecret(id, ciphertext string) error {
@@ -111,7 +171,7 @@ func (s *Service) SetSigningSecret(id, ciphertext string) error {
 	channel.SigningSecretCiphertext = ciphertext
 	channel.CredentialsStored = ciphertext != ""
 	s.channels[id] = channel
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Service) Channels() []Channel {
@@ -193,8 +253,48 @@ func (s *Service) dispatchChannel(ctx context.Context, channelID string, alert a
 	}
 	s.mu.Lock()
 	s.deliveries = append(s.deliveries, delivery)
+	persistErr := s.persistLocked()
 	s.mu.Unlock()
+	if persistErr != nil && err == nil {
+		err = persistErr
+		delivery.Status = "failed"
+		delivery.LastError = persistErr.Error()
+	}
 	return delivery, err
+}
+
+func (s *Service) persistLocked() error {
+	if s.filePath == "" {
+		return nil
+	}
+	snapshot := struct {
+		Version    int                         `json:"version"`
+		Channels   map[string]persistedChannel `json:"channels"`
+		Deliveries []Delivery                  `json:"deliveries"`
+	}{Version: 1, Channels: make(map[string]persistedChannel, len(s.channels)), Deliveries: s.deliveries}
+	for id, channel := range s.channels {
+		snapshot.Channels[id] = persistedChannel{
+			ID: channel.ID, Name: channel.Name, Kind: channel.Kind, Endpoint: channel.Endpoint,
+			Enabled: channel.Enabled, CredentialsStored: channel.CredentialsStored,
+			SigningSecretCiphertext: channel.SigningSecretCiphertext,
+		}
+	}
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.filePath), 0o700); err != nil {
+		return err
+	}
+	temporary := s.filePath + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, s.filePath); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
 }
 
 func (s *Service) sendWebhook(ctx context.Context, channel Channel, alert alerts.Alert, delivery *Delivery) error {
