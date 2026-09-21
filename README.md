@@ -39,7 +39,7 @@ curl http://localhost:8080/api/v1/domains
 curl http://localhost:8080/api/v1/certificates
 ```
 
-The same flow works with Compose by setting `CERT_HARBOR_DEMO=1` in `.env` before `docker compose up --build`. Fixture mode establishes the shared contract and deterministic reconciliation path. Cloudflare connections with encrypted credentials use the live API adapter; Alibaba Cloud, Tencent/DNSPod, and AWS remain fixture-backed until their signed/API-SDK adapters are added.
+The same flow works with Compose by setting `CERT_HARBOR_DEMO=1` in `.env` before `docker compose up --build`. Fixture mode establishes the shared contract and deterministic reconciliation path. Cloudflare and AWS connections with encrypted credentials use live read-only API adapters; Alibaba Cloud and Tencent/DNSPod remain fixture-backed until their signed/API-SDK adapters are added.
 
 The scheduler runs enabled connections once per configured interval (daily by default). Set `CERT_HARBOR_SYNC_INTERVAL=15m` or another Go duration for local testing. The catalog, alert state, and notification state use `CERT_HARBOR_DATA_PATH`, `CERT_HARBOR_ALERTS_PATH`, and `CERT_HARBOR_NOTIFICATIONS_PATH`; Compose defaults all three to the persistent `/app/data` volume.
 
