@@ -53,7 +53,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) {
 		if !connection.Enabled {
 			continue
 		}
-		if _, err := s.syncer.Sync(ctx, connection.ID); err != nil {
+		if _, err := s.syncConnection(ctx, connection); err != nil {
 			s.logf("scheduled sync failed connection=%s provider=%s error=%v", connection.ID, connection.Provider, err)
 		}
 	}
@@ -68,7 +68,7 @@ func (s *Scheduler) RunDue(ctx context.Context) {
 		if !connection.Enabled || (connection.NextSyncAt != nil && now.Before(*connection.NextSyncAt)) {
 			continue
 		}
-		if _, err := s.syncer.Sync(ctx, connection.ID); err != nil {
+		if _, err := s.syncConnection(ctx, connection); err != nil {
 			s.logf("scheduled sync failed connection=%s provider=%s error=%v", connection.ID, connection.Provider, err)
 		}
 		s.scheduleNext(connection, now)
@@ -76,6 +76,34 @@ func (s *Scheduler) RunDue(ctx context.Context) {
 	if s.onCycle != nil {
 		s.onCycle(ctx)
 	}
+}
+
+func (s *Scheduler) syncConnection(ctx context.Context, connection catalog.Connection) (catalog.SyncRun, error) {
+	run, err := s.syncer.Sync(ctx, connection.ID)
+	outcome := "succeeded"
+	if err != nil {
+		outcome = "failed"
+	}
+	correlationID := run.CorrelationID
+	if correlationID == "" {
+		correlationID = "scheduled-" + connection.ID + "-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	objectID := connection.ID
+	if run.ConnectionID != "" {
+		objectID = run.ConnectionID
+	}
+	if auditErr := s.store.AppendAudit(catalog.AuditEvent{
+		Actor:         "system",
+		Action:        "sync.run",
+		ObjectType:    "provider_connection",
+		ObjectID:      objectID,
+		Outcome:       outcome,
+		CorrelationID: correlationID,
+		CreatedAt:     time.Now().UTC(),
+	}); auditErr != nil {
+		s.logf("scheduled sync audit failed connection=%s error=%v", connection.ID, auditErr)
+	}
+	return run, err
 }
 
 func (s *Scheduler) initializeNextRuns(now time.Time) {

@@ -30,6 +30,16 @@ func TestRunOnceSynchronizesEnabledConnections(t *testing.T) {
 	if total != 1 || len(items) != 1 || items[0].ConnectionID != "enabled" {
 		t.Fatalf("scheduled inventory = total %d items %#v", total, items)
 	}
+	auditMatched := false
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "sync.run" && event.ObjectID == "enabled" && event.Actor == "system" && event.CorrelationID != "" && event.Outcome == "succeeded" {
+			auditMatched = true
+			break
+		}
+	}
+	if !auditMatched {
+		t.Fatalf("scheduled sync audit event missing: %#v", store.ListAuditEvents())
+	}
 }
 
 func TestRunOnceRunsMonitorCallbackAfterSynchronization(t *testing.T) {
