@@ -200,12 +200,7 @@ func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) metricsEndpoint(w http.ResponseWriter, _ *http.Request) {
 	summary := s.store.Summary()
-	openAlerts := 0
-	for _, alert := range s.alerts.Alerts() {
-		if alert.State != alerting.StateResolved {
-			openAlerts++
-		}
-	}
+	openAlerts := countOpenAlerts(s.alerts.Alerts())
 	staleConnections := 0
 	for _, connection := range s.store.ListConnections() {
 		if connection.Status == "unhealthy" {
@@ -299,14 +294,18 @@ func (s *Server) deleteMember(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) summary(w http.ResponseWriter, _ *http.Request) {
 	summary := s.store.Summary()
-	openAlerts := 0
-	for _, item := range s.alerts.Alerts() {
-		if item.State != alerting.StateResolved {
-			openAlerts++
+	summary["open_alerts"] = countOpenAlerts(s.alerts.Alerts())
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func countOpenAlerts(items []alerting.Alert) int {
+	count := 0
+	for _, item := range items {
+		if item.State == alerting.StateOpen || item.State == alerting.StateAcknowledged {
+			count++
 		}
 	}
-	summary["open_alerts"] = openAlerts
-	writeJSON(w, http.StatusOK, summary)
+	return count
 }
 
 func (s *Server) connections(w http.ResponseWriter, r *http.Request) {

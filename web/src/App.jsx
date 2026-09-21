@@ -359,7 +359,7 @@ export function App({ fetcher = defaultFetcher }) {
       <Col xs={24} sm={12} lg={6}><Card><Statistic title="Domains" value={summary.domains} /></Card></Col>
       <Col xs={24} sm={12} lg={6}><Card><Statistic title="Certificates" value={summary.certificates} /></Card></Col>
       <Col xs={24} sm={12} lg={6}><Card><Statistic title="Stale assets" value={summary.stale_assets} /></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="Open alerts" value={summary.open_alerts ?? alerts.filter((item) => item.state !== 'resolved').length} /></Card></Col>
+      <Col xs={24} sm={12} lg={6}><Card><Statistic title="Open alerts" value={summary.open_alerts ?? alerts.filter((item) => item.state === 'open' || item.state === 'acknowledged').length} /></Card></Col>
     </Row>
     <Card title="Inventory" className="inventory-card">
       <Table columns={overviewColumns} dataSource={rows.length ? rows : [{ key: 'empty', asset: 'No assets synchronized yet', type: '—', provider: '—', state: 'Ready', lastSync: 'Run your first sync' }]} pagination={false} />

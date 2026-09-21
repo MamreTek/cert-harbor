@@ -39,6 +39,18 @@ func TestHealthAndReadinessEndpoints(t *testing.T) {
 	}
 }
 
+func TestCountOpenAlertsExcludesResolvedAndSuppressed(t *testing.T) {
+	items := []alerting.Alert{
+		{State: alerting.StateOpen},
+		{State: alerting.StateAcknowledged},
+		{State: alerting.StateSuppressed},
+		{State: alerting.StateResolved},
+	}
+	if got := countOpenAlerts(items); got != 2 {
+		t.Fatalf("countOpenAlerts() = %d, want 2", got)
+	}
+}
+
 func TestReadinessRejectsIncompleteProductionConfig(t *testing.T) {
 	server := NewServer(config.Config{Env: "production"})
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
