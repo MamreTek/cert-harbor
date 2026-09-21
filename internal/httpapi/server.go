@@ -556,7 +556,7 @@ func decorateDomains(items []domain.Domain) {
 
 func decorateCertificates(items []domain.Certificate) {
 	for index := range items {
-		items[index].ExpiryState = catalog.DeriveExpiryState(&items[index].ValidTo, items[index].Stale)
+		items[index].ExpiryState = catalog.DeriveCertificateExpiryState(items[index])
 	}
 }
 

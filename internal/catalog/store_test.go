@@ -74,4 +74,25 @@ func TestCertificateStatusFilter(t *testing.T) {
 	}
 }
 
+func TestCertificateExpiryStateIncludesProviderTerminalStatus(t *testing.T) {
+	store := NewStore()
+	now := time.Now().UTC()
+	if err := store.ReplaceAssets("connection", now, nil, []domain.Certificate{
+		{ID: "revoked", Provider: string(providers.Cloudflare), CommonName: "revoked.example", Status: "REVOKED", ValidTo: now.Add(180 * 24 * time.Hour)},
+		{ID: "invalid", Provider: string(providers.Cloudflare), CommonName: "invalid.example", Status: "validation_failed", ValidTo: now.Add(180 * 24 * time.Hour)},
+		{ID: "expiring", Provider: string(providers.Cloudflare), CommonName: "expiring.example", Status: "ISSUED", ValidTo: now.Add(10 * 24 * time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for state, want := range map[string]string{"revoked": "revoked.example", "invalid": "invalid.example", "expiring": "expiring.example"} {
+		items, total := store.ListCertificates(Filter{ExpiryState: state, Page: 1, PageSize: 50})
+		if total != 1 || len(items) != 1 || items[0].CommonName != want {
+			t.Fatalf("certificate expiry state %q = total %d items %#v", state, total, items)
+		}
+	}
+	if got := DeriveCertificateExpiryState(domain.Certificate{Status: "REVOKED", ValidTo: now.Add(180 * 24 * time.Hour)}); got != "revoked" {
+		t.Fatalf("revoked certificate state = %q", got)
+	}
+}
+
 func timePtr(value time.Time) *time.Time { return &value }

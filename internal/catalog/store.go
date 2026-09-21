@@ -789,12 +789,32 @@ func DeriveExpiryState(expiresAt *time.Time, stale bool) string {
 	return expiryState(expiresAt, stale)
 }
 
+// DeriveCertificateExpiryState preserves provider-reported terminal states
+// before falling back to the certificate's time-based expiry state.
+func DeriveCertificateExpiryState(item domain.Certificate) string {
+	switch strings.ToLower(strings.TrimSpace(item.Status)) {
+	case "revoked":
+		return "revoked"
+	case "failed", "validation_failed", "invalid", "inactive":
+		return "invalid"
+	default:
+		return expiryState(&item.ValidTo, item.Stale)
+	}
+}
+
 func matchesDomain(filter Filter, item domain.Domain) bool {
 	return (filter.Status == "" || strings.EqualFold(filter.Status, item.Status)) && matches(filter, item.Provider, item.Name, item.Owner, item.Environment, item.Stale, item.Tags, item.ExpiresAt)
 }
 
 func matchesCertificate(filter Filter, item domain.Certificate) bool {
-	return (filter.Status == "" || strings.EqualFold(filter.Status, item.Status)) && matches(filter, item.Provider, item.CommonName, item.Owner, item.Environment, item.Stale, item.Tags, &item.ValidTo)
+	if filter.Status != "" && !strings.EqualFold(filter.Status, item.Status) {
+		return false
+	}
+	if filter.ExpiryState != "" && !strings.EqualFold(filter.ExpiryState, DeriveCertificateExpiryState(item)) {
+		return false
+	}
+	filter.ExpiryState = ""
+	return matches(filter, item.Provider, item.CommonName, item.Owner, item.Environment, item.Stale, item.Tags, &item.ValidTo)
 }
 
 func containsFold(values []string, wanted string) bool {
