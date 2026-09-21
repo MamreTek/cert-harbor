@@ -20,4 +20,20 @@ describe('CertHarbor console', () => {
     expect(screen.getByText('Domains')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Search inventory')).toBeInTheDocument()
   })
+
+  it('acknowledges an open alert from the alert center', async () => {
+    const calls = []
+    const fetcher = async (url, options = {}) => {
+      calls.push({ url, options })
+      if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }
+      if (url === '/api/v1/alerts') return { ok: true, json: async () => ({ items: [{ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', state: 'open', severity: 'high', provider: 'cloudflare', updated_at: 'now' }] }) }
+      return { ok: true, json: async () => ({ items: [] }) }
+    }
+    render(<App fetcher={fetcher} />)
+    await waitFor(() => expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Alert center'))
+    await waitFor(() => expect(screen.getByText('Acknowledge')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Acknowledge'))
+    await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/alerts/alert-1/acknowledge' && options.method === 'POST')).toBe(true))
+  })
 })
