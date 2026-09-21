@@ -93,3 +93,5 @@ make api-race
 cd web && npm test && npm run build
 cd .. && docker compose config
 ```
+
+The GitHub Actions workflow in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) repeats these checks on a clean runner, adds the PostgreSQL catalog round-trip test, and runs a real Compose health/sync/inventory/metrics smoke test. This provides container-runtime coverage even when a local developer account cannot access the Docker daemon.
