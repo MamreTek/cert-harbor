@@ -98,7 +98,9 @@ func main() {
 			if alert.State == alerting.StateResolved || alert.State == alerting.StateSuppressed {
 				continue
 			}
-			_ = notificationService.Queue(alert)
+			if err := notificationService.Queue(alert); err != nil {
+				slog.Error("notification_queue_failed", "alert_id", alert.ID, "error", err)
+			}
 		}
 		recordNotificationDeliveries(store, notificationService.DeliverOutbox(cycleCtx))
 	}
@@ -130,7 +132,7 @@ func main() {
 
 func recordNotificationDeliveries(store *catalog.Store, deliveries []notifications.Delivery) {
 	for _, delivery := range deliveries {
-		_ = store.AppendAudit(catalog.AuditEvent{
+		if err := store.AppendAudit(catalog.AuditEvent{
 			Actor:         "system",
 			Action:        "notification.delivery",
 			ObjectType:    "notification_delivery",
@@ -138,6 +140,8 @@ func recordNotificationDeliveries(store *catalog.Store, deliveries []notificatio
 			Outcome:       delivery.Status,
 			CorrelationID: delivery.CorrelationID,
 			CreatedAt:     time.Now().UTC(),
-		})
+		}); err != nil {
+			slog.Error("notification_delivery_audit_failed", "delivery_id", delivery.ID, "error", err)
+		}
 	}
 }

@@ -980,7 +980,10 @@ func (s *Server) notifyAlert(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
 		return
 	}
-	_ = s.notifications.Queue(alert)
+	if err := s.notifications.Queue(alert); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "notification could not be queued"})
+		return
+	}
 	deliveries := s.notifications.DeliverOutbox(r.Context())
 	if err := s.auditDeliveries(r, deliveries); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "notification completed but audit event could not be recorded"})
@@ -994,7 +997,10 @@ func (s *Server) dispatchAlerts(r *http.Request, alerts []alerting.Alert) {
 		if alert.State == alerting.StateResolved || alert.State == alerting.StateSuppressed {
 			continue
 		}
-		_ = s.notifications.Queue(alert)
+		if err := s.notifications.Queue(alert); err != nil {
+			s.logger.Error("notification_queue_failed", "alert_id", alert.ID, "error", err)
+			continue
+		}
 		if err := s.auditDeliveries(r, s.notifications.DeliverOutbox(r.Context())); err != nil {
 			s.logger.Error("notification_audit_failed", "error", err)
 		}
