@@ -24,7 +24,7 @@ services:
       CERT_HARBOR_DATA_PATH: ${CERT_HARBOR_DATA_PATH:-/app/data/cert-harbor.json}
       CERT_HARBOR_ALERTS_PATH: ${CERT_HARBOR_ALERTS_PATH:-/app/data/cert-harbor-alerts.json}
       CERT_HARBOR_NOTIFICATIONS_PATH: ${CERT_HARBOR_NOTIFICATIONS_PATH:-/app/data/cert-harbor-notifications.json}
-      CERT_HARBOR_DATABASE_URL: ${CERT_HARBOR_DATABASE_URL:-postgres://cert_harbor:cert_harbor_local_only@postgres:5432/cert_harbor?sslmode=disable}
+      CERT_HARBOR_DATABASE_URL: ${CERT_HARBOR_DATABASE_URL:-postgres://${POSTGRES_USER:-cert_harbor}:${POSTGRES_PASSWORD:-cert_harbor_local_only}@postgres:5432/${POSTGRES_DB:-cert_harbor}?sslmode=disable}
       CERT_HARBOR_SYNC_INTERVAL: ${CERT_HARBOR_SYNC_INTERVAL:-24h}
       CERT_HARBOR_ADMIN_TOKEN: ${CERT_HARBOR_ADMIN_TOKEN:-}
       CERT_HARBOR_VIEWER_TOKEN: ${CERT_HARBOR_VIEWER_TOKEN:-}

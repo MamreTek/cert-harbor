@@ -4,7 +4,7 @@
 
 Local `go run ./cmd/cert-harbor` uses atomic JSON snapshots by default. Docker Compose starts PostgreSQL 16 and sets `CERT_HARBOR_DATABASE_URL`, so the catalog is restored from PostgreSQL and catalog mutations are written there. Alert and notification state remains in the protected `/app/data` volume because those services have their own durable snapshots and outbox.
 
-For production, set `POSTGRES_PASSWORD` and `CERT_HARBOR_DATABASE_URL` through a secret manager or deployment secret. Do not commit those values to `.env` or expose PostgreSQL publicly.
+For production, set `POSTGRES_PASSWORD` and `CERT_HARBOR_DATABASE_URL` through a secret manager or deployment secret. The Compose default derives the database URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; set `CERT_HARBOR_DATABASE_URL` explicitly when the password contains URL-reserved characters. Do not commit those values to `.env` or expose PostgreSQL publicly.
 
 ## Encryption-key rotation
 
