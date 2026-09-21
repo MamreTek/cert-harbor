@@ -7,6 +7,7 @@ import (
 
 	"github.com/MamreTek/cert-harbor/internal/domain"
 	"github.com/MamreTek/cert-harbor/internal/providers"
+	"github.com/MamreTek/cert-harbor/internal/security"
 )
 
 func TestOpenStoreRestoresCatalogAfterRestart(t *testing.T) {
@@ -44,5 +45,33 @@ func TestOpenStoreRestoresCatalogAfterRestart(t *testing.T) {
 	members := reopened.ListMembers()
 	if len(members) != 2 || members[0].Email != "admin@localhost" || members[1].Email != "viewer@example.com" {
 		t.Fatalf("restored members = %#v", members)
+	}
+}
+
+func TestRotateCredentialsPreservesConnection(t *testing.T) {
+	oldBox, err := security.NewSecretBox("old-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newBox, err := security.NewSecretBox("new-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := oldBox.EncryptMap(map[string]string{"token": "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore()
+	if err := store.AddConnection(Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true, CredentialsCiphertext: ciphertext, CredentialsStored: true}); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := store.RotateCredentials(newBox, oldBox)
+	if err != nil || rotated != 1 {
+		t.Fatalf("rotated=%d err=%v", rotated, err)
+	}
+	connection, _ := store.GetConnection("connection")
+	values, err := newBox.DecryptMap(connection.CredentialsCiphertext)
+	if err != nil || values["token"] != "secret" || !connection.CredentialsStored {
+		t.Fatalf("rotated connection=%#v values=%#v err=%v", connection, values, err)
 	}
 }

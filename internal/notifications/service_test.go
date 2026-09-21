@@ -217,3 +217,38 @@ func TestQueuedAlertSurvivesRestartUntilDelivered(t *testing.T) {
 		t.Fatalf("restarted outbox deliveries = %#v history=%#v", deliveries, restarted.Deliveries())
 	}
 }
+
+func TestRotateNotificationSecrets(t *testing.T) {
+	oldBox, err := security.NewSecretBox("old-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newBox, err := security.NewSecretBox("new-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingSecret, err := oldBox.Encrypt([]byte("signing-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := oldBox.EncryptMap(map[string]string{"username": "ops", "password": "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(newBox)
+	if err := service.AddChannel(Channel{ID: "ops", Name: "Ops", Kind: KindWebhook, Endpoint: "https://example.test", Enabled: true, SigningSecretCiphertext: signingSecret, CredentialsCiphertext: credentials, CredentialsStored: true}); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := service.RotateSecrets(newBox, oldBox)
+	if err != nil || rotated != 2 {
+		t.Fatalf("rotated=%d err=%v", rotated, err)
+	}
+	channel := service.Channels()[0]
+	if value, err := newBox.Decrypt(channel.SigningSecretCiphertext); err != nil || string(value) != "signing-secret" {
+		t.Fatalf("signing secret = %q err=%v", value, err)
+	}
+	values, err := newBox.DecryptMap(channel.CredentialsCiphertext)
+	if err != nil || values["password"] != "secret" {
+		t.Fatalf("credentials = %#v err=%v", values, err)
+	}
+}

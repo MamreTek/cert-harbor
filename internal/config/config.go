@@ -14,6 +14,7 @@ type Config struct {
 	AdminToken        string
 	ViewerToken       string
 	EncryptionKey     string
+	OldEncryptionKey  string
 	WebDir            string
 	Demo              bool
 	FixturePath       string
@@ -31,6 +32,7 @@ func FromEnv() Config {
 		AdminToken:        os.Getenv("CERT_HARBOR_ADMIN_TOKEN"),
 		ViewerToken:       os.Getenv("CERT_HARBOR_VIEWER_TOKEN"),
 		EncryptionKey:     os.Getenv("CERT_HARBOR_ENCRYPTION_KEY"),
+		OldEncryptionKey:  os.Getenv("CERT_HARBOR_ENCRYPTION_KEY_OLD"),
 		WebDir:            valueOrDefault("CERT_HARBOR_WEB_DIR", "web/dist"),
 		Demo:              boolFromEnv("CERT_HARBOR_DEMO"),
 		FixturePath:       valueOrDefault("CERT_HARBOR_FIXTURE_PATH", "examples/demo-fixture.json"),

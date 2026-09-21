@@ -9,6 +9,7 @@ import (
 
 	"github.com/MamreTek/cert-harbor/internal/domain"
 	"github.com/MamreTek/cert-harbor/internal/providers"
+	"github.com/MamreTek/cert-harbor/internal/security"
 )
 
 type Connection struct {
@@ -306,6 +307,33 @@ func (s *Store) SetCredentials(id, ciphertext string) error {
 	connection.CredentialsStored = ciphertext != ""
 	s.connections[id] = connection
 	return s.persistLocked()
+}
+
+func (s *Store) RotateCredentials(current, previous *security.SecretBox) (int, error) {
+	if current == nil {
+		return 0, errors.New("current encryption key is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rotated := 0
+	for id, connection := range s.connections {
+		if connection.CredentialsCiphertext == "" {
+			continue
+		}
+		ciphertext, changed, err := current.Reencrypt(connection.CredentialsCiphertext, previous)
+		if err != nil {
+			return rotated, errors.New("rotate credentials for connection " + id + ": " + err.Error())
+		}
+		if changed {
+			connection.CredentialsCiphertext = ciphertext
+			s.connections[id] = connection
+			rotated++
+		}
+	}
+	if rotated == 0 {
+		return 0, nil
+	}
+	return rotated, s.persistLocked()
 }
 
 func (s *Store) ListConnections() []Connection {

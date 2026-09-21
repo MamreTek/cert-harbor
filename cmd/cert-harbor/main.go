@@ -41,6 +41,16 @@ func main() {
 			log.Fatalf("initialize secret encryption: %v", err)
 		}
 	}
+	var oldSecrets *security.SecretBox
+	if cfg.OldEncryptionKey != "" {
+		oldSecrets, err = security.NewSecretBox(cfg.OldEncryptionKey)
+		if err != nil {
+			log.Fatalf("initialize previous secret encryption: %v", err)
+		}
+	}
+	if oldSecrets != nil && secrets == nil {
+		log.Fatal("CERT_HARBOR_ENCRYPTION_KEY is required when rotating secrets")
+	}
 	syncService := syncer.New(store, adapters, secrets)
 	alertEngine, err := alerting.OpenEngine(store, cfg.AlertsPath)
 	if err != nil {
@@ -49,6 +59,18 @@ func main() {
 	notificationService, err := notifications.OpenService(secrets, cfg.NotificationsPath)
 	if err != nil {
 		log.Fatalf("open notification state: %v", err)
+	}
+	if oldSecrets != nil {
+		if _, err := store.RotateCredentials(secrets, oldSecrets); err != nil {
+			log.Fatalf("rotate provider credentials: %v", err)
+		}
+		if _, err := notificationService.RotateSecrets(secrets, oldSecrets); err != nil {
+			log.Fatalf("rotate notification secrets: %v", err)
+		}
+		if err := store.AppendAudit(catalog.AuditEvent{Actor: "system", Action: "security.key_rotation", ObjectType: "encryption_key", ObjectID: "application", Outcome: "succeeded", CorrelationID: "startup-key-rotation", CreatedAt: time.Now().UTC()}); err != nil {
+			log.Fatalf("record encryption key rotation audit: %v", err)
+		}
+		log.Printf("encryption key rotation completed; remove CERT_HARBOR_ENCRYPTION_KEY_OLD")
 	}
 	if cfg.Demo {
 		if _, exists := store.GetConnection("demo-cloudflare"); !exists {

@@ -211,6 +211,42 @@ func (s *Service) SetCredentials(id, ciphertext string) error {
 	return s.persistLocked()
 }
 
+func (s *Service) RotateSecrets(current, previous *security.SecretBox) (int, error) {
+	if current == nil {
+		return 0, errors.New("current encryption key is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rotated := 0
+	for id, channel := range s.channels {
+		if channel.SigningSecretCiphertext != "" {
+			ciphertext, changed, err := current.Reencrypt(channel.SigningSecretCiphertext, previous)
+			if err != nil {
+				return rotated, fmt.Errorf("rotate signing secret for channel %s: %w", id, err)
+			}
+			if changed {
+				channel.SigningSecretCiphertext = ciphertext
+				rotated++
+			}
+		}
+		if channel.CredentialsCiphertext != "" {
+			ciphertext, changed, err := current.Reencrypt(channel.CredentialsCiphertext, previous)
+			if err != nil {
+				return rotated, fmt.Errorf("rotate credentials for channel %s: %w", id, err)
+			}
+			if changed {
+				channel.CredentialsCiphertext = ciphertext
+				rotated++
+			}
+		}
+		s.channels[id] = channel
+	}
+	if rotated == 0 {
+		return 0, nil
+	}
+	return rotated, s.persistLocked()
+}
+
 func (s *Service) Channels() []Channel {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

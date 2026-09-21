@@ -6,6 +6,10 @@ Local `go run ./cmd/cert-harbor` uses atomic JSON snapshots by default. Docker C
 
 For production, set `POSTGRES_PASSWORD` and `CERT_HARBOR_DATABASE_URL` through a secret manager or deployment secret. Do not commit those values to `.env` or expose PostgreSQL publicly.
 
+## Encryption-key rotation
+
+Set the replacement value in `CERT_HARBOR_ENCRYPTION_KEY` and the previous value in `CERT_HARBOR_ENCRYPTION_KEY_OLD`. On startup CertHarbor re-encrypts provider credentials and notification secrets without changing their ownership or IDs. Confirm the service is healthy and test one provider connection and notification channel, then remove `CERT_HARBOR_ENCRYPTION_KEY_OLD` and restart again.
+
 ## Backup and recovery
 
 Back up the PostgreSQL catalog and the `/app/data` volume together. The encryption key is required to decrypt provider and notification credentials after restore.

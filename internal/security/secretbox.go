@@ -81,3 +81,28 @@ func (s *SecretBox) DecryptMap(value string) (map[string]string, error) {
 	}
 	return values, nil
 }
+
+// Reencrypt decrypts a value with the current key when possible. If the
+// current key cannot open it, previous is used once and the plaintext is
+// immediately encrypted with the current key. This supports controlled key
+// rotation without exposing plaintext to callers.
+func (s *SecretBox) Reencrypt(value string, previous *SecretBox) (string, bool, error) {
+	if value == "" {
+		return "", false, nil
+	}
+	if _, err := s.Decrypt(value); err == nil {
+		return value, false, nil
+	}
+	if previous == nil {
+		return "", false, errors.New("encrypted secret requires the previous encryption key")
+	}
+	plaintext, err := previous.Decrypt(value)
+	if err != nil {
+		return "", false, err
+	}
+	rotated, err := s.Encrypt(plaintext)
+	if err != nil {
+		return "", false, err
+	}
+	return rotated, true, nil
+}
