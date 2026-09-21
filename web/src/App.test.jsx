@@ -48,6 +48,7 @@ describe('CertHarbor console', () => {
       if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 1, stale_assets: 0 }) }
       if (url === '/api/v1/provider-connections?page=1&page_size=50') return { ok: true, json: async () => ({ items: [{ id: 'connection-1', name: 'Cloudflare', provider: 'cloudflare', status: 'healthy', enabled: true }] }) }
       if (url === '/api/v1/provider-connections/connection-1/test') return { ok: true, json: async () => ({ request_id: 'ray-1' }) }
+      if (url === '/api/v1/provider-connections/connection-1/sync') return { ok: true, json: async () => ({ status: 'succeeded' }) }
       return { ok: true, json: async () => ({ items: [] }) }
     }
     render(<App fetcher={fetcher} />)
@@ -57,6 +58,9 @@ describe('CertHarbor console', () => {
     fireEvent.click(screen.getByText('Test'))
     await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/provider-connections/connection-1/test' && options.method === 'POST')).toBe(true))
     expect(await screen.findByText(/Connection test passed/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Sync'))
+    await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/provider-connections/connection-1/sync' && options.method === 'POST')).toBe(true))
+    expect(screen.getByText('Cloudflare sync completed.')).toBeInTheDocument()
   })
 
   it('opens inventory details from the domain table', async () => {

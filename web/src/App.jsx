@@ -106,22 +106,25 @@ export function App({ fetcher = defaultFetcher }) {
     loadInventory()
   }, [loadInventory])
 
-  const syncNow = async () => {
-    const connection = connections[0]
+  const syncConnection = async (connection) => {
     if (!fetcher || !connection) return
     setSyncing(true)
     setError('')
     setNotice('')
     try {
       const response = await requester(`/api/v1/provider-connections/${connection.id}/sync`, { method: 'POST' })
-      if (!response.ok) throw new Error('The provider sync failed.')
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'The provider sync failed.')
       await loadInventory()
+      setNotice(`${connection.name || connection.provider} sync completed.`)
     } catch (syncError) {
       setError(syncError.message || 'Unable to synchronize the provider.')
     } finally {
       setSyncing(false)
     }
   }
+
+  const syncNow = () => syncConnection(connections[0])
 
   const testConnection = async (item) => {
     setError('')
@@ -328,7 +331,7 @@ export function App({ fetcher = defaultFetcher }) {
 
   const renderSettings = () => <>
     <Row gutter={[16, 16]}>
-      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => testConnection(item)}>Test</Button><Button size="small" onClick={() => openModal('connection', item)}>Edit</Button><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Last sync', dataIndex: 'last_sync_at', render: (value) => value || 'Never' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => syncConnection(item)} loading={syncing}>Sync</Button><Button size="small" onClick={() => testConnection(item)}>Test</Button><Button size="small" onClick={() => openModal('connection', item)}>Edit</Button><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Members" extra={<Button size="small" onClick={() => openModal('member')}>Invite</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={members} columns={[{ title: 'Email', dataIndex: 'email' }, { title: 'Role', dataIndex: 'role' }, { title: 'Status', dataIndex: 'status' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => openModal('member', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/members/${item.id}`, 'Remove this member?')}>Remove</Button></Space> }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Notification channels" extra={<Button size="small" onClick={() => openModal('channel')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => testNotificationChannel(item)}>Test</Button><Button size="small" onClick={() => openModal('channel', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/notification-channels/${item.id}`, 'Delete this notification channel?')}>Delete</Button></Space> }]} /></Card></Col>
     </Row>
