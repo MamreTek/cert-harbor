@@ -6,6 +6,10 @@ Local `go run ./cmd/cert-harbor` uses atomic JSON snapshots by default. Docker C
 
 For production, set `POSTGRES_PASSWORD` and `CERT_HARBOR_DATABASE_URL` through a secret manager or deployment secret. The Compose default derives the database URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; set `CERT_HARBOR_DATABASE_URL` explicitly when the password contains URL-reserved characters. Do not commit those values to `.env` or expose PostgreSQL publicly.
 
+## Sync reconciliation and retention
+
+Each successful provider sync reconciles assets for that connection. Assets absent from a successful response are retained with `stale=true` and remain queryable so operators can investigate provider-side removal or permission changes. A failed, cancelled, or partially unreadable sync does not change the last-known inventory. CertHarbor does not automatically purge stale assets in the MVP; deleting the provider connection explicitly removes its associated assets.
+
 ## Encryption-key rotation
 
 Set the replacement value in `CERT_HARBOR_ENCRYPTION_KEY` and the previous value in `CERT_HARBOR_ENCRYPTION_KEY_OLD`. On startup CertHarbor re-encrypts provider credentials and notification secrets without changing their ownership or IDs. Confirm the service is healthy and test one provider connection and notification channel, then remove `CERT_HARBOR_ENCRYPTION_KEY_OLD` and restart again.

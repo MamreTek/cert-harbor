@@ -62,7 +62,7 @@ Email channels use an `smtp://` or `smtps://host:port?from=...&to=...` endpoint.
 
 Provider credentials and webhook signing secrets are encrypted with the configured application key, omitted from API responses, and excluded from audit records. When `CERT_HARBOR_DATABASE_URL` is configured, catalog, alert, and notification state restore automatically from PostgreSQL state snapshots; legacy JSON files are migrated on first startup. Connections without credentials use the bundled fixture adapter; connections with encrypted credentials use the live read-only provider clients. SMTP/SMTPS delivery and signed webhook delivery are supported through the notification outbox.
 
-Alert rules can be scoped by provider, owner, environment, and tag. Alert evaluation is full-catalog and is not limited by the paginated inventory API. See [`docs/operations.md`](docs/operations.md) for PostgreSQL backup/recovery and the disposable-database integration test.
+Alert rules can be scoped by asset type, provider, owner, environment, and tag. Alert evaluation is full-catalog and is not limited by the paginated inventory API. See [`docs/operations.md`](docs/operations.md) for PostgreSQL backup/recovery, sync retention, and the disposable-database integration test.
 
 The read-only permission checklist for live adapters is in [`docs/provider-permissions.md`](docs/provider-permissions.md).
 
