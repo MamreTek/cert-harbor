@@ -140,12 +140,33 @@ func TestNotificationChannelAndDeliveryEndpoints(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("failed notification test status = %d body = %s", response.Code, response.Body.String())
 	}
+	var failedTest struct {
+		Delivery notifications.Delivery `json:"delivery"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &failedTest); err != nil || failedTest.Delivery.CorrelationID == "" {
+		t.Fatalf("failed notification test did not return a correlation ID: %s", response.Body.String())
+	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit-events", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "notification_channel.create") {
 		t.Fatalf("notification audit response = %d %s", response.Code, response.Body.String())
+	}
+	auditMatched := false
+	var auditPage struct {
+		Items []catalog.AuditEvent `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &auditPage); err == nil {
+		for _, event := range auditPage.Items {
+			if event.Action == "notification_channel.test" && event.CorrelationID == failedTest.Delivery.CorrelationID {
+				auditMatched = true
+				break
+			}
+		}
+	}
+	if !auditMatched {
+		t.Fatalf("notification test correlation was not audited: delivery=%#v body=%s", failedTest.Delivery, response.Body.String())
 	}
 }
 
@@ -286,6 +307,16 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	var syncRun catalog.SyncRun
 	if err := json.Unmarshal(response.Body.Bytes(), &syncRun); err != nil || syncRun.ID == "" {
 		t.Fatalf("sync response = %s", response.Body.String())
+	}
+	auditMatched := false
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "sync.run" && event.ObjectID == syncRun.ConnectionID && event.CorrelationID == syncRun.CorrelationID {
+			auditMatched = true
+			break
+		}
+	}
+	if !auditMatched {
+		t.Fatalf("sync correlation was not audited: run=%#v events=%#v", syncRun, store.ListAuditEvents())
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/sync-runs/"+syncRun.ID, nil)
 	response = httptest.NewRecorder()

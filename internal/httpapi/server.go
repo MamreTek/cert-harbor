@@ -462,7 +462,7 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 	run, err := s.syncer.Sync(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.metrics.Inc("sync_failures_total")
-		if auditErr := s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "failed"); auditErr != nil {
+		if auditErr := s.auditSyncRun(r, run, "failed"); auditErr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "sync failed and audit event could not be recorded"})
 			return
 		}
@@ -475,7 +475,7 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	s.metrics.Inc("sync_runs_total")
 	s.dispatchAlerts(r, s.alerts.Evaluate())
-	if auditErr := s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "succeeded"); auditErr != nil {
+	if auditErr := s.auditSyncRun(r, run, "succeeded"); auditErr != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "sync succeeded but audit event could not be recorded"})
 		return
 	}
@@ -942,7 +942,13 @@ func (s *Server) testNotificationChannel(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		outcome = "failed"
 	}
-	if auditErr := s.audit(r, "notification_channel.test", "notification_channel", r.PathValue("id"), outcome); auditErr != nil {
+	var auditErr error
+	if delivery.CorrelationID != "" {
+		auditErr = s.auditWithCorrelation(r, "notification_channel.test", "notification_channel", r.PathValue("id"), outcome, delivery.CorrelationID)
+	} else {
+		auditErr = s.audit(r, "notification_channel.test", "notification_channel", r.PathValue("id"), outcome)
+	}
+	if auditErr != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "channel test completed but audit event could not be recorded"})
 		return
 	}
@@ -1006,6 +1012,13 @@ func (s *Server) audit(r *http.Request, action, objectType, objectID, outcome st
 		correlationID = "req-" + time.Now().UTC().Format("20060102T150405.000000000Z")
 	}
 	return s.auditWithCorrelation(r, action, objectType, objectID, outcome, correlationID)
+}
+
+func (s *Server) auditSyncRun(r *http.Request, run catalog.SyncRun, outcome string) error {
+	if run.CorrelationID != "" {
+		return s.auditWithCorrelation(r, "sync.run", "provider_connection", run.ConnectionID, outcome, run.CorrelationID)
+	}
+	return s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), outcome)
 }
 
 func (s *Server) auditWithCorrelation(r *http.Request, action, objectType, objectID, outcome, correlationID string) error {
