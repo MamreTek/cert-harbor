@@ -29,70 +29,118 @@ paths:
           content: {application/json: {schema: {$ref: '#/components/schemas/Meta'}}}
   /api/v1/workspace:
     get:
-      responses: {"200": {description: Workspace metadata}}
+      responses:
+        "200":
+          description: Workspace metadata
+          content: {application/json: {schema: {$ref: '#/components/schemas/Workspace'}}}
   /api/v1/members:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated workspace members}}
+      responses:
+        "200":
+          description: Paginated workspace members
+          content: {application/json: {schema: {$ref: '#/components/schemas/MemberPage'}}}
     post:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/MemberCreateRequest'}}}
-      responses: {"201": {description: Member invited}}
+      responses:
+        "201":
+          description: Member invited
+          content: {application/json: {schema: {$ref: '#/components/schemas/Member'}}}
   /api/v1/members/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/MemberPatchRequest'}}}
-      responses: {"200": {description: Member updated}, "422": {description: Invalid member}}
+      responses:
+        "200":
+          description: Member updated
+          content: {application/json: {schema: {$ref: '#/components/schemas/Member'}}}
+        "422": {description: Invalid member, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
       responses: {"204": {description: Member removed}}
   /api/v1/catalog/summary:
     get:
-      responses: {"200": {description: Inventory summary}}
+      responses:
+        "200":
+          description: Inventory summary
+          content: {application/json: {schema: {$ref: '#/components/schemas/Summary'}}}
   /api/v1/provider-connections:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated provider connections}}
+      responses:
+        "200":
+          description: Paginated provider connections
+          content: {application/json: {schema: {$ref: '#/components/schemas/ConnectionPage'}}}
     post:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/ConnectionRequest'}}}
-      responses: {"201": {description: Created}, "400": {description: Invalid request}}
+      responses:
+        "201":
+          description: Created
+          content: {application/json: {schema: {$ref: '#/components/schemas/Connection'}}}
+        "400": {description: Invalid request, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/v1/provider-connections/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/ConnectionRequest'}}}
-      responses: {"200": {description: Updated}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Updated
+          content: {application/json: {schema: {$ref: '#/components/schemas/Connection'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
       responses: {"204": {description: Deleted}}
   /api/v1/provider-connections/{id}/test:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Provider test result}, "422": {description: Provider failure}}
+      responses:
+        "200":
+          description: Provider test result
+          content: {application/json: {schema: {$ref: '#/components/schemas/TestResult'}}}
+        "422": {description: Provider failure, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/v1/provider-connections/{id}/sync:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Sync run}}
+      responses:
+        "200":
+          description: Sync run
+          content: {application/json: {schema: {$ref: '#/components/schemas/SyncRun'}}}
   /api/v1/domains:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}, {$ref: '#/components/parameters/Search'}, {in: query, name: provider, schema: {type: string}}, {in: query, name: status, schema: {type: string}}, {in: query, name: owner, schema: {type: string}}, {in: query, name: environment, schema: {type: string}}, {in: query, name: tag, schema: {type: string}}, {in: query, name: stale, schema: {type: boolean}}, {in: query, name: expires_before, schema: {type: string, format: date-time}}, {in: query, name: expires_after, schema: {type: string, format: date-time}}, {in: query, name: sort, schema: {type: string, enum: [name, expires_at, last_seen_at]}}, {in: query, name: order, schema: {type: string, enum: [asc, desc]}}, {in: query, name: expiry_state, schema: {type: string, enum: [healthy, expiring, expired, revoked, invalid, stale, unknown]}}]
-      responses: {"200": {description: Paginated domains}}
+      responses:
+        "200":
+          description: Paginated domains
+          content: {application/json: {schema: {$ref: '#/components/schemas/DomainPage'}}}
   /api/v1/domains/{id}:
     get:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Domain detail}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Domain detail
+          content: {application/json: {schema: {$ref: '#/components/schemas/Domain'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/v1/certificates:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}, {$ref: '#/components/parameters/Search'}, {in: query, name: provider, schema: {type: string}}, {in: query, name: status, schema: {type: string}}, {in: query, name: owner, schema: {type: string}}, {in: query, name: environment, schema: {type: string}}, {in: query, name: tag, schema: {type: string}}, {in: query, name: stale, schema: {type: boolean}}, {in: query, name: expires_before, schema: {type: string, format: date-time}}, {in: query, name: expires_after, schema: {type: string, format: date-time}}, {in: query, name: sort, schema: {type: string, enum: [common_name, expires_at, last_seen_at]}}, {in: query, name: order, schema: {type: string, enum: [asc, desc]}}, {in: query, name: expiry_state, schema: {type: string, enum: [healthy, expiring, expired, revoked, invalid, stale, unknown]}}]
-      responses: {"200": {description: Paginated certificates}}
+      responses:
+        "200":
+          description: Paginated certificates
+          content: {application/json: {schema: {$ref: '#/components/schemas/CertificatePage'}}}
   /api/v1/certificates/{id}:
     get:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Certificate detail}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Certificate detail
+          content: {application/json: {schema: {$ref: '#/components/schemas/Certificate'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/v1/export/domains.csv:
     get:
       responses: {"200": {description: Complete filtered CSV export}}
@@ -102,93 +150,155 @@ paths:
   /api/v1/sync-runs:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated sync run history}}
+      responses:
+        "200":
+          description: Paginated sync run history
+          content: {application/json: {schema: {$ref: '#/components/schemas/SyncRunPage'}}}
   /api/v1/sync-runs/{id}:
     get:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Sync run detail}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Sync run detail
+          content: {application/json: {schema: {$ref: '#/components/schemas/SyncRun'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/v1/alerts:
     get:
       parameters: [{in: query, name: page, schema: {type: integer, minimum: 1}}, {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 200}}, {in: query, name: state, schema: {type: string}}, {in: query, name: provider, schema: {type: string}}]
-      responses: {"200": {description: Paginated alerts}}
+      responses:
+        "200":
+          description: Paginated alerts
+          content: {application/json: {schema: {$ref: '#/components/schemas/AlertPage'}}}
   /api/v1/alerts/{id}:
     get:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Alert detail}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Alert detail
+          content: {application/json: {schema: {$ref: '#/components/schemas/Alert'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /api/v1/alerts/{id}/acknowledge:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
       requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AlertActionRequest'}}}}
-      responses: {"200": {description: Alert acknowledged}}
+      responses:
+        "200":
+          description: Alert acknowledged
+          content: {application/json: {schema: {$ref: '#/components/schemas/Alert'}}}
   /api/v1/alerts/{id}/resolve:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
       requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AlertActionRequest'}}}}
-      responses: {"200": {description: Alert resolved}}
+      responses:
+        "200":
+          description: Alert resolved
+          content: {application/json: {schema: {$ref: '#/components/schemas/Alert'}}}
   /api/v1/alerts/{id}/suppress:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
       requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AlertActionRequest'}}}}
-      responses: {"200": {description: Alert suppressed}}
+      responses:
+        "200":
+          description: Alert suppressed
+          content: {application/json: {schema: {$ref: '#/components/schemas/Alert'}}}
   /api/v1/alerts/{id}/notify:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Notification queued}}
+      responses:
+        "200":
+          description: Notification queued
+          content: {application/json: {schema: {$ref: '#/components/schemas/DeliveryPage'}}}
   /api/v1/monitor/evaluate:
     post:
-      responses: {"200": {description: Evaluation result}}
+      responses:
+        "200":
+          description: Evaluation result
+          content: {application/json: {schema: {$ref: '#/components/schemas/EvaluationResponse'}}}
   /api/v1/alert-rules:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated alert rules}}
+      responses:
+        "200":
+          description: Paginated alert rules
+          content: {application/json: {schema: {$ref: '#/components/schemas/AlertRulePage'}}}
     post:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRequest'}}}
-      responses: {"201": {description: Created}}
+      responses:
+        "201":
+          description: Created
+          content: {application/json: {schema: {$ref: '#/components/schemas/AlertRule'}}}
   /api/v1/alert-rules/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRequest'}}}
-      responses: {"200": {description: Updated}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Updated
+          content: {application/json: {schema: {$ref: '#/components/schemas/AlertRule'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
       responses: {"204": {description: Deleted}}
   /api/v1/alert-events:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated alert state transition history}}
+      responses:
+        "200":
+          description: Paginated alert state transition history
+          content: {application/json: {schema: {$ref: '#/components/schemas/AlertEventPage'}}}
   /api/v1/notification-channels:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated notification channels}}
+      responses:
+        "200":
+          description: Paginated notification channels
+          content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannelPage'}}}
     post:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannelRequest'}}}
-      responses: {"201": {description: Created}}
+      responses:
+        "201":
+          description: Created
+          content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannel'}}}
   /api/v1/notification-channels/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannelRequest'}}}
-      responses: {"200": {description: Updated}, "404": {description: Not found}}
+      responses:
+        "200":
+          description: Updated
+          content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannel'}}}
+        "404": {description: Not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     delete:
       responses: {"204": {description: Deleted}}
   /api/v1/notification-channels/{id}/test:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
-      responses: {"200": {description: Test delivery result}, "422": {description: Delivery failed}}
+      responses:
+        "200":
+          description: Test delivery result
+          content: {application/json: {schema: {$ref: '#/components/schemas/Delivery'}}}
+        "422": {description: Delivery failed, content: {application/json: {schema: {$ref: '#/components/schemas/DeliveryError'}}}}
   /api/v1/notification-deliveries:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}, {in: query, name: alert_id, schema: {type: string}}]
-      responses: {"200": {description: Paginated delivery history}}
+      responses:
+        "200":
+          description: Paginated delivery history
+          content: {application/json: {schema: {$ref: '#/components/schemas/DeliveryPage'}}}
   /api/v1/audit-events:
     get:
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
-      responses: {"200": {description: Paginated audit events}}
+      responses:
+        "200":
+          description: Paginated audit events
+          content: {application/json: {schema: {$ref: '#/components/schemas/AuditEventPage'}}}
 components:
   securitySchemes:
     bearerAuth:
@@ -262,3 +372,312 @@ components:
         name: {type: string}
         role: {type: string, enum: [administrator, viewer]}
         status: {type: string, enum: [invited, active, suspended]}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}
+    DeliveryError:
+      type: object
+      required: [error, delivery]
+      properties:
+        error: {type: string}
+        delivery: {$ref: '#/components/schemas/Delivery'}
+    Workspace:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+    Member:
+      type: object
+      required: [id, email, name, role, status, created_at, updated_at]
+      properties:
+        id: {type: string}
+        email: {type: string, format: email}
+        name: {type: string}
+        role: {type: string, enum: [administrator, viewer]}
+        status: {type: string, enum: [invited, active, suspended]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    MemberPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Member'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    Summary:
+      type: object
+      required: [domains, certificates, connections, stale_assets, open_alerts]
+      properties:
+        domains: {type: integer, minimum: 0}
+        certificates: {type: integer, minimum: 0}
+        connections: {type: integer, minimum: 0}
+        stale_assets: {type: integer, minimum: 0}
+        open_alerts: {type: integer, minimum: 0}
+    ProviderCapabilities:
+      type: object
+      required: [provider, domains, certificates, credential_guidance, supported_source_types]
+      properties:
+        provider: {type: string}
+        domains: {type: boolean}
+        certificates: {type: boolean}
+        credential_guidance: {type: string}
+        supported_source_types: {type: array, items: {type: string}}
+    Connection:
+      type: object
+      required: [id, name, provider, enabled, sync_interval, source, capabilities, status, credentials_stored]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        provider: {type: string, enum: [alibaba_cloud, tencent, aws, cloudflare]}
+        enabled: {type: boolean}
+        sync_interval: {type: string}
+        next_sync_at: {type: string, format: date-time, nullable: true}
+        source: {type: string}
+        capabilities: {$ref: '#/components/schemas/ProviderCapabilities'}
+        status: {type: string}
+        last_sync_at: {type: string, format: date-time, nullable: true}
+        last_sync_error: {type: string}
+        credentials_stored: {type: boolean}
+    ConnectionPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Connection'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    TestResult:
+      type: object
+      required: [provider, request_id, capabilities]
+      properties:
+        provider: {type: string}
+        request_id: {type: string}
+        capabilities: {$ref: '#/components/schemas/ProviderCapabilities'}
+    SyncRun:
+      type: object
+      required: [id, connection_id, provider, started_at, status, domains, certificates, correlation_id]
+      properties:
+        id: {type: string}
+        connection_id: {type: string}
+        provider: {type: string}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time, nullable: true}
+        status: {type: string, enum: [running, succeeded, failed]}
+        domains: {type: integer, minimum: 0}
+        certificates: {type: integer, minimum: 0}
+        error_summary: {type: string}
+        correlation_id: {type: string}
+    SyncRunPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/SyncRun'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    Domain:
+      type: object
+      required: [id, connection_id, provider, source_id, name, last_seen_at, stale, expiry_state]
+      properties:
+        id: {type: string}
+        connection_id: {type: string}
+        provider: {type: string}
+        source_id: {type: string}
+        name: {type: string}
+        registrable_domain: {type: string}
+        zone: {type: string}
+        registrar: {type: string}
+        status: {type: string}
+        nameservers: {type: array, items: {type: string}}
+        expires_at: {type: string, format: date-time, nullable: true}
+        expiry_state: {type: string, enum: [healthy, expiring, expired, stale, unknown]}
+        owner: {type: string}
+        environment: {type: string}
+        tags: {type: array, items: {type: string}}
+        notes: {type: string}
+        last_seen_at: {type: string, format: date-time}
+        stale: {type: boolean}
+        source_url: {type: string, format: uri}
+    DomainPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Domain'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    Certificate:
+      type: object
+      required: [id, connection_id, provider, source_id, common_name, valid_from, valid_to, last_seen_at, stale, expiry_state]
+      properties:
+        id: {type: string}
+        connection_id: {type: string}
+        provider: {type: string}
+        source_id: {type: string}
+        common_name: {type: string}
+        sans: {type: array, items: {type: string}}
+        issuer: {type: string}
+        status: {type: string}
+        serial_number: {type: string}
+        fingerprint: {type: string}
+        certificate_type: {type: string}
+        linked_domains: {type: array, items: {type: string}}
+        valid_from: {type: string, format: date-time}
+        valid_to: {type: string, format: date-time}
+        expiry_state: {type: string, enum: [healthy, expiring, expired, revoked, invalid, stale, unknown]}
+        region: {type: string}
+        owner: {type: string}
+        environment: {type: string}
+        tags: {type: array, items: {type: string}}
+        notes: {type: string}
+        last_seen_at: {type: string, format: date-time}
+        stale: {type: boolean}
+        source_url: {type: string, format: uri}
+    CertificatePage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Certificate'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    Alert:
+      type: object
+      required: [id, rule_id, asset_id, asset_kind, asset_name, provider, state, severity, deep_link, updated_at]
+      properties:
+        id: {type: string}
+        rule_id: {type: string}
+        asset_id: {type: string}
+        asset_kind: {type: string, enum: [domain, certificate, connection]}
+        asset_name: {type: string}
+        provider: {type: string}
+        state: {type: string, enum: [open, acknowledged, resolved, suppressed]}
+        severity: {type: string}
+        days_remaining: {type: integer, nullable: true}
+        expires_at: {type: string, format: date-time, nullable: true}
+        source_url: {type: string, format: uri}
+        freshness: {type: string}
+        deep_link: {type: string}
+        updated_at: {type: string, format: date-time}
+        actor: {type: string}
+        note: {type: string}
+    AlertPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Alert'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    AlertRule:
+      type: object
+      required: [id, name, enabled, domain_thresholds, certificate_thresholds, stale_after_hours]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        enabled: {type: boolean}
+        domain_thresholds: {type: array, items: {type: integer}}
+        certificate_thresholds: {type: array, items: {type: integer}}
+        stale_after_hours: {type: integer, minimum: 1}
+        asset_types: {type: array, items: {type: string}}
+        providers: {type: array, items: {type: string}}
+        owners: {type: array, items: {type: string}}
+        environments: {type: array, items: {type: string}}
+        tags: {type: array, items: {type: string}}
+    AlertRulePage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/AlertRule'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    AlertEvent:
+      type: object
+      required: [id, alert_id, to_state, actor, created_at]
+      properties:
+        id: {type: string}
+        alert_id: {type: string}
+        from_state: {type: string}
+        to_state: {type: string, enum: [open, acknowledged, resolved, suppressed]}
+        actor: {type: string}
+        note: {type: string}
+        created_at: {type: string, format: date-time}
+    AlertEventPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/AlertEvent'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    NotificationChannel:
+      type: object
+      required: [id, name, kind, endpoint, enabled, credentials_stored]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [email, webhook]}
+        endpoint: {type: string, format: uri}
+        enabled: {type: boolean}
+        credentials_stored: {type: boolean}
+    NotificationChannelPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/NotificationChannel'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    Delivery:
+      type: object
+      required: [id, correlation_id, channel_id, alert_id, alert_state, status, attempts, created_at]
+      properties:
+        id: {type: string}
+        correlation_id: {type: string}
+        channel_id: {type: string}
+        alert_id: {type: string}
+        alert_state: {type: string}
+        status: {type: string, enum: [delivered, failed]}
+        attempts: {type: integer, minimum: 0}
+        last_error: {type: string}
+        delivered_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+    DeliveryPage:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Delivery'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
+    EvaluationResponse:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Alert'}}
+    AuditEvent:
+      type: object
+      required: [id, actor, action, object_type, object_id, outcome, correlation_id, created_at]
+      properties:
+        id: {type: string}
+        actor: {type: string}
+        action: {type: string}
+        object_type: {type: string}
+        object_id: {type: string}
+        outcome: {type: string}
+        correlation_id: {type: string}
+        created_at: {type: string, format: date-time}
+    AuditEventPage:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}
+        total: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1}
