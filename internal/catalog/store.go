@@ -464,6 +464,10 @@ func (s *Store) FinishSync(runID string, success bool, now time.Time, domains, c
 			connection.Status = "healthy"
 			connection.LastSyncAt = &now
 			connection.LastSyncError = ""
+			if interval, parseErr := time.ParseDuration(connection.SyncInterval); parseErr == nil && interval > 0 {
+				next := now.Add(interval)
+				connection.NextSyncAt = &next
+			}
 		} else {
 			run.Status = "failed"
 			connection.Status = "unhealthy"

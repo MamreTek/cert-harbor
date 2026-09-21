@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/providers"
@@ -20,6 +21,10 @@ func TestSyncPreservesAssetsWhenProviderFixtureFails(t *testing.T) {
 	service := New(store, registry.New(fixture))
 	if run, err := service.Sync(context.Background(), "demo"); err != nil || run.Status != "succeeded" {
 		t.Fatalf("initial sync = %#v, %v", run, err)
+	}
+	connection, ok := store.GetConnection("demo")
+	if !ok || connection.NextSyncAt == nil || !connection.NextSyncAt.After(connection.LastSyncAt.Add(-time.Second)) {
+		t.Fatalf("successful sync did not schedule next run: %#v", connection)
 	}
 	if run, err := service.Sync(context.Background(), "demo"); err != nil || run.Status != "succeeded" {
 		t.Fatalf("repeat sync = %#v, %v", run, err)
