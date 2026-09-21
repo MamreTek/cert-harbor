@@ -7,7 +7,7 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { Alert, Button, Card, Col, Input, Layout, Menu, Row, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Input, Layout, Menu, Modal, Row, Select, Space, Spin, Statistic, Table, Tag, Typography } from 'antd'
 
 const { Header, Sider, Content } = Layout
 
@@ -46,6 +46,8 @@ export function App({ fetcher = defaultFetcher }) {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
   const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', expiry_state: '', stale: '' })
+  const [modalKind, setModalKind] = useState('')
+  const [modalValues, setModalValues] = useState({})
 
   const filterQuery = new URLSearchParams(Object.entries(inventoryFilters).filter(([, value]) => value !== '')).toString()
 
@@ -102,6 +104,67 @@ export function App({ fetcher = defaultFetcher }) {
       setError(syncError.message || 'Unable to synchronize the provider.')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const updateModalValue = (key, value) => setModalValues((current) => ({ ...current, [key]: value }))
+
+  const openModal = (kind) => {
+    setModalKind(kind)
+    setModalValues({ enabled: true, role: 'viewer', kind: 'webhook', sync_interval: '24h', domain_thresholds: '90,30,14,7,3', certificate_thresholds: '90,30,14,7,3', stale_after_hours: '26' })
+  }
+
+  const closeModal = () => {
+    setModalKind('')
+    setModalValues({})
+  }
+
+  const submitModal = async () => {
+    if (!fetcher) return
+    setError('')
+    let url
+    let payload
+    try {
+      if (modalKind === 'connection') {
+        let credentials = {}
+        if (modalValues.credentials) credentials = JSON.parse(modalValues.credentials)
+        url = '/api/v1/provider-connections'
+        payload = { name: modalValues.name, provider: modalValues.provider, sync_interval: modalValues.sync_interval, enabled: true, credentials }
+      } else if (modalKind === 'member') {
+        url = '/api/v1/members'
+        payload = { email: modalValues.email, name: modalValues.name, role: modalValues.role }
+      } else if (modalKind === 'channel') {
+        let credentials = {}
+        if (modalValues.credentials) credentials = JSON.parse(modalValues.credentials)
+        url = '/api/v1/notification-channels'
+        payload = { name: modalValues.name, kind: modalValues.kind, endpoint: modalValues.endpoint, signing_secret: modalValues.signing_secret, credentials }
+      } else if (modalKind === 'rule') {
+        url = '/api/v1/alert-rules'
+        payload = { name: modalValues.name, domain_thresholds: String(modalValues.domain_thresholds).split(',').map(Number).filter(Number.isFinite), certificate_thresholds: String(modalValues.certificate_thresholds).split(',').map(Number).filter(Number.isFinite), stale_after_hours: Number(modalValues.stale_after_hours), tags: modalValues.tags ? String(modalValues.tags).split(',').map((value) => value.trim()).filter(Boolean) : [] }
+      }
+      const response = await fetcher(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error || 'The requested change failed.')
+      }
+      closeModal()
+      await loadInventory()
+    } catch (mutationError) {
+      setError(mutationError.message || 'The requested change failed.')
+    }
+  }
+
+  const toggleConnection = async (item) => {
+    const response = await fetcher(`/api/v1/provider-connections/${item.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !item.enabled }) })
+    if (!response.ok) setError('Unable to update provider connection.')
+    await loadInventory()
+  }
+
+  const deleteResource = async (url, message) => {
+    if (!globalThis.confirm || globalThis.confirm(message)) {
+      const response = await fetcher(url, { method: 'DELETE' })
+      if (!response.ok) setError('Unable to delete the selected resource.')
+      await loadInventory()
     }
   }
 
@@ -173,11 +236,11 @@ export function App({ fetcher = defaultFetcher }) {
 
   const renderSettings = () => <>
     <Row gutter={[16, 16]}>
-      <Col xs={24} lg={8}><Card title="Provider connections"><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }]} /></Card></Col>
-      <Col xs={24} lg={8}><Card title="Members"><Table rowKey="id" size="small" pagination={false} dataSource={members} columns={[{ title: 'Email', dataIndex: 'email' }, { title: 'Role', dataIndex: 'role' }, { title: 'Status', dataIndex: 'status' }]} /></Card></Col>
-      <Col xs={24} lg={8}><Card title="Notification channels"><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Members" extra={<Button size="small" onClick={() => openModal('member')}>Invite</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={members} columns={[{ title: 'Email', dataIndex: 'email' }, { title: 'Role', dataIndex: 'role' }, { title: 'Status', dataIndex: 'status' }, { title: 'Actions', render: (_, item) => <Button size="small" danger onClick={() => deleteResource(`/api/v1/members/${item.id}`, 'Remove this member?')}>Remove</Button> }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Notification channels" extra={<Button size="small" onClick={() => openModal('channel')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }, { title: 'Actions', render: (_, item) => <Button size="small" danger onClick={() => deleteResource(`/api/v1/notification-channels/${item.id}`, 'Delete this notification channel?')}>Delete</Button> }]} /></Card></Col>
     </Row>
-    <Card title="Alert rules" className="inventory-card"><Table rowKey="id" pagination={false} dataSource={rules} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Domain thresholds', dataIndex: 'domain_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Certificate thresholds', dataIndex: 'certificate_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Stale after (hours)', dataIndex: 'stale_after_hours' }]} /></Card>
+    <Card title="Alert rules" extra={<Button size="small" onClick={() => openModal('rule')}>Add</Button>} className="inventory-card"><Table rowKey="id" pagination={false} dataSource={rules} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Domain thresholds', dataIndex: 'domain_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Certificate thresholds', dataIndex: 'certificate_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Stale after (hours)', dataIndex: 'stale_after_hours' }, { title: 'Actions', render: (_, item) => item.id === 'default' ? 'Protected' : <Button size="small" danger onClick={() => deleteResource(`/api/v1/alert-rules/${item.id}`, 'Delete this alert rule?')}>Delete</Button> }]} /></Card>
     <Row gutter={[16, 16]} className="inventory-card">
       <Col xs={24} lg={12}><Card title="Sync history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={syncRuns} columns={[{ title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Started', dataIndex: 'started_at' }, { title: 'Error', dataIndex: 'error_summary', render: (value) => value || '—' }]} /></Card></Col>
       <Col xs={24} lg={12}><Card title="Audit history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={auditEvents} columns={[{ title: 'Action', dataIndex: 'action' }, { title: 'Object', dataIndex: 'object_type' }, { title: 'Outcome', dataIndex: 'outcome' }, { title: 'Created', dataIndex: 'created_at' }]} /></Card></Col>
@@ -216,6 +279,12 @@ export function App({ fetcher = defaultFetcher }) {
           </>}
         </Content>
       </Layout>
+      <Modal open={Boolean(modalKind)} title={{ connection: 'Add provider connection', member: 'Invite workspace member', channel: 'Add notification channel', rule: 'Add alert rule' }[modalKind]} onCancel={closeModal} onOk={submitModal} okText="Save">
+        {modalKind === 'connection' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Provider" style={{ width: '100%' }} onChange={(value) => updateModalValue('provider', value)} options={['alibaba', 'tencent', 'aws', 'cloudflare'].map((value) => ({ value, label: value }))} /><Input placeholder="Sync interval, e.g. 24h" defaultValue="24h" onChange={(event) => updateModalValue('sync_interval', event.target.value)} /><Input.TextArea placeholder='Credentials JSON (optional)' onChange={(event) => updateModalValue('credentials', event.target.value)} /></Space>}
+        {modalKind === 'member' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Email" onChange={(event) => updateModalValue('email', event.target.value)} /><Input placeholder="Name" onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Role" defaultValue="viewer" style={{ width: '100%' }} onChange={(value) => updateModalValue('role', value)} options={[{ value: 'viewer', label: 'Viewer' }, { value: 'administrator', label: 'Administrator' }]} /></Space>}
+        {modalKind === 'channel' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Kind" defaultValue="webhook" style={{ width: '100%' }} onChange={(value) => updateModalValue('kind', value)} options={[{ value: 'webhook', label: 'Webhook' }, { value: 'email', label: 'Email' }]} /><Input placeholder="Endpoint" onChange={(event) => updateModalValue('endpoint', event.target.value)} /><Input.Password placeholder="Signing secret" onChange={(event) => updateModalValue('signing_secret', event.target.value)} /><Input.TextArea placeholder='Credentials JSON (email username/password/from/to)' onChange={(event) => updateModalValue('credentials', event.target.value)} /></Space>}
+        {modalKind === 'rule' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" onChange={(event) => updateModalValue('name', event.target.value)} /><Input placeholder="Domain thresholds: 90,30,14,7,3" defaultValue="90,30,14,7,3" onChange={(event) => updateModalValue('domain_thresholds', event.target.value)} /><Input placeholder="Certificate thresholds: 90,30,14,7,3" defaultValue="90,30,14,7,3" onChange={(event) => updateModalValue('certificate_thresholds', event.target.value)} /><Input placeholder="Stale after hours" defaultValue="26" onChange={(event) => updateModalValue('stale_after_hours', event.target.value)} /><Input placeholder="Tags (comma-separated, optional)" onChange={(event) => updateModalValue('tags', event.target.value)} /></Space>}
+      </Modal>
     </Layout>
   )
 }
