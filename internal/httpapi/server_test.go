@@ -265,6 +265,16 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("sync status = %d, body = %s", response.Code, response.Body.String())
 	}
+	var syncRun catalog.SyncRun
+	if err := json.Unmarshal(response.Body.Bytes(), &syncRun); err != nil || syncRun.ID == "" {
+		t.Fatalf("sync response = %s", response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/sync-runs/"+syncRun.ID, nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), syncRun.ID) {
+		t.Fatalf("sync run detail response = %d %s", response.Code, response.Body.String())
+	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/domains?provider=cloudflare&page=1&page_size=10", nil)
 	response = httptest.NewRecorder()
@@ -316,5 +326,17 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "expiring") {
 		t.Fatalf("evaluate alerts response = %d %s", response.Code, response.Body.String())
+	}
+	var evaluated struct {
+		Items []alerting.Alert `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &evaluated); err != nil || len(evaluated.Items) == 0 {
+		t.Fatalf("evaluate alerts body = %s", response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/alerts/"+evaluated.Items[0].ID, nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), evaluated.Items[0].ID) {
+		t.Fatalf("alert detail status = %d body=%s", response.Code, response.Body.String())
 	}
 }

@@ -525,6 +525,17 @@ func (s *Store) ListSyncRuns() []SyncRun {
 	return items
 }
 
+func (s *Store) GetSyncRun(id string) (SyncRun, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, run := range s.syncRuns {
+		if run.ID == id {
+			return run, true
+		}
+	}
+	return SyncRun{}, false
+}
+
 func (s *Store) AppendAudit(event AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

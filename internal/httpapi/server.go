@@ -103,8 +103,10 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("GET /api/v1/export/domains.csv", s.exportDomains)
 	s.mux.HandleFunc("GET /api/v1/export/certificates.csv", s.exportCertificates)
 	s.mux.HandleFunc("GET /api/v1/sync-runs", s.syncRuns)
+	s.mux.HandleFunc("GET /api/v1/sync-runs/{id}", s.syncRunDetail)
 	s.mux.HandleFunc("GET /api/v1/audit-events", s.auditEvents)
 	s.mux.HandleFunc("GET /api/v1/alerts", s.alertList)
+	s.mux.HandleFunc("GET /api/v1/alerts/{id}", s.alertDetail)
 	s.mux.HandleFunc("GET /api/v1/alert-rules", s.alertRules)
 	s.mux.HandleFunc("POST /api/v1/alert-rules", s.createAlertRule)
 	s.mux.HandleFunc("PATCH /api/v1/alert-rules/{id}", s.updateAlertRule)
@@ -522,6 +524,15 @@ func (s *Server) syncRuns(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.store.ListSyncRuns()})
 }
 
+func (s *Server) syncRunDetail(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.store.GetSyncRun(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "sync run not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
+}
+
 func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request) {
 	allItems := s.store.ListAuditEvents()
 	pageNumber := page(r)
@@ -540,6 +551,15 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) alertList(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Alerts()})
+}
+
+func (s *Server) alertDetail(w http.ResponseWriter, r *http.Request) {
+	alert, ok := s.alerts.Get(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, alert)
 }
 
 func (s *Server) alertRules(w http.ResponseWriter, _ *http.Request) {
