@@ -168,6 +168,12 @@ export function App({ fetcher = defaultFetcher }) {
     }
   }
 
+  const alertAction = async (id, action) => {
+    const response = await fetcher(`/api/v1/alerts/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actor: 'administrator' }) })
+    if (!response.ok) setError(`Unable to ${action} the alert.`)
+    await loadInventory()
+  }
+
   const rows = useMemo(() => [
     ...domains.map((item) => ({ key: item.id, asset: item.name, type: 'Domain', provider: item.provider, state: item.stale ? 'Stale' : 'Healthy', lastSync: item.last_seen_at })),
     ...certificates.map((item) => ({ key: item.id, asset: item.common_name, type: 'Certificate', provider: item.provider, state: item.stale ? 'Stale' : 'Healthy', lastSync: item.last_seen_at })),
@@ -231,6 +237,12 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Days remaining', dataIndex: 'days_remaining', key: 'days_remaining', render: (value) => value ?? '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Updated', dataIndex: 'updated_at', key: 'updated_at' },
+      { title: 'Actions', render: (_, item) => <Space>
+        {item.state === 'open' && <Button size="small" onClick={() => alertAction(item.id, 'acknowledge')}>Acknowledge</Button>}
+        {item.state !== 'resolved' && <Button size="small" onClick={() => alertAction(item.id, 'resolve')}>Resolve</Button>}
+        {(item.state === 'open' || item.state === 'acknowledged') && <Button size="small" onClick={() => alertAction(item.id, 'suppress')}>Suppress</Button>}
+        {item.state !== 'resolved' && item.state !== 'suppressed' && <Button size="small" onClick={() => alertAction(item.id, 'notify')}>Notify</Button>}
+      </Space> },
     ]} />
   </Card>
 
