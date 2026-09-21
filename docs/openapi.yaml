@@ -87,7 +87,8 @@ paths:
       responses: {"200": {description: Complete filtered CSV export}}
   /api/v1/sync-runs:
     get:
-      responses: {"200": {description: Sync run history}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated sync run history}}
   /api/v1/sync-runs/{id}:
     get:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
@@ -132,7 +133,8 @@ paths:
       responses: {"204": {description: Deleted}}
   /api/v1/alert-events:
     get:
-      responses: {"200": {description: Alert state transition history}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated alert state transition history}}
   /api/v1/notification-channels:
     get:
       responses: {"200": {description: Notification channels}}
@@ -150,7 +152,8 @@ paths:
       responses: {"200": {description: Test delivery result}, "422": {description: Delivery failed}}
   /api/v1/notification-deliveries:
     get:
-      responses: {"200": {description: Delivery history}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated delivery history}}
   /api/v1/members:
     get:
       responses: {"200": {description: Workspace members}}

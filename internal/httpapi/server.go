@@ -517,8 +517,10 @@ func writeCSV(w http.ResponseWriter, filename string, rows [][]string) {
 	writer.Flush()
 }
 
-func (s *Server) syncRuns(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.store.ListSyncRuns()})
+func (s *Server) syncRuns(w http.ResponseWriter, r *http.Request) {
+	allItems := s.store.ListSyncRuns()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 func (s *Server) syncRunDetail(w http.ResponseWriter, r *http.Request) {
@@ -666,8 +668,10 @@ func (s *Server) deleteAlertRule(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) alertEvents(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Events()})
+func (s *Server) alertEvents(w http.ResponseWriter, r *http.Request) {
+	allItems := s.alerts.Events()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 func (s *Server) evaluateAlerts(w http.ResponseWriter, r *http.Request) {
@@ -867,8 +871,10 @@ func (s *Server) testNotificationChannel(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, delivery)
 }
 
-func (s *Server) notificationDeliveries(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.notifications.Deliveries()})
+func (s *Server) notificationDeliveries(w http.ResponseWriter, r *http.Request) {
+	allItems := s.notifications.Deliveries()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 func (s *Server) notifyAlert(w http.ResponseWriter, r *http.Request) {
@@ -975,6 +981,18 @@ func pageSize(r *http.Request) int {
 		return 50
 	}
 	return parsed
+}
+
+func pageItems[T any](items []T, pageNumber, pageLimit int) []T {
+	start := (pageNumber - 1) * pageLimit
+	if start >= len(items) {
+		return []T{}
+	}
+	end := start + pageLimit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end]
 }
 
 func (s *Server) web(w http.ResponseWriter, r *http.Request) {
