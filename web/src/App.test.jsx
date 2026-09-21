@@ -31,6 +31,9 @@ describe('CertHarbor console', () => {
     }
     render(<App fetcher={fetcher} />)
     await waitFor(() => expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('API token'), { target: { value: 'viewer-secret' } })
+    fireEvent.click(screen.getByText('Use token'))
+    await waitFor(() => expect(calls.some(({ options }) => options.headers?.['X-CertHarbor-Token'] === 'viewer-secret')).toBe(true))
     fireEvent.click(screen.getByText('Alert center'))
     await waitFor(() => expect(screen.getByText('Acknowledge')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Acknowledge'))

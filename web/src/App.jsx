@@ -48,6 +48,16 @@ export function App({ fetcher = defaultFetcher }) {
   const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', expiry_state: '', stale: '' })
   const [modalKind, setModalKind] = useState('')
   const [modalValues, setModalValues] = useState({})
+  const [authToken, setAuthToken] = useState(() => {
+    try { return globalThis.localStorage?.getItem('cert_harbor_token') || '' } catch { return '' }
+  })
+  const [tokenDraft, setTokenDraft] = useState(authToken)
+
+  const requester = useCallback((url, options = {}) => {
+    const headers = { ...(options.headers || {}) }
+    if (authToken) headers['X-CertHarbor-Token'] = authToken
+    return fetcher(url, { ...options, headers })
+  }, [authToken, fetcher])
 
   const filterQuery = new URLSearchParams(Object.entries(inventoryFilters).filter(([, value]) => value !== '')).toString()
 
@@ -57,16 +67,16 @@ export function App({ fetcher = defaultFetcher }) {
     setError('')
     try {
       const responses = await Promise.all([
-        fetcher('/api/v1/catalog/summary'),
-        fetcher('/api/v1/provider-connections'),
-        fetcher(`/api/v1/domains?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
-        fetcher(`/api/v1/certificates?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
-        fetcher('/api/v1/alerts'),
-        fetcher('/api/v1/alert-rules'),
-        fetcher('/api/v1/members'),
-        fetcher('/api/v1/notification-channels'),
-        fetcher('/api/v1/sync-runs'),
-        fetcher('/api/v1/audit-events?page=1&page_size=50'),
+        requester('/api/v1/catalog/summary'),
+        requester('/api/v1/provider-connections'),
+        requester(`/api/v1/domains?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
+        requester(`/api/v1/certificates?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
+        requester('/api/v1/alerts'),
+        requester('/api/v1/alert-rules'),
+        requester('/api/v1/members'),
+        requester('/api/v1/notification-channels'),
+        requester('/api/v1/sync-runs'),
+        requester('/api/v1/audit-events?page=1&page_size=50'),
       ])
       if (responses.some((response) => !response.ok)) throw new Error('The inventory API returned an error.')
       const [nextSummary, nextConnections, nextDomains, nextCertificates, nextAlerts, nextRules, nextMembers, nextChannels, nextSyncRuns, nextAuditEvents] = await Promise.all(responses.map((response) => response.json()))
@@ -85,7 +95,7 @@ export function App({ fetcher = defaultFetcher }) {
     } finally {
       setLoading(false)
     }
-  }, [fetcher, filterQuery])
+  }, [fetcher, filterQuery, requester])
 
   useEffect(() => {
     loadInventory()
@@ -97,7 +107,7 @@ export function App({ fetcher = defaultFetcher }) {
     setSyncing(true)
     setError('')
     try {
-      const response = await fetcher(`/api/v1/provider-connections/${connection.id}/sync`, { method: 'POST' })
+      const response = await requester(`/api/v1/provider-connections/${connection.id}/sync`, { method: 'POST' })
       if (!response.ok) throw new Error('The provider sync failed.')
       await loadInventory()
     } catch (syncError) {
@@ -142,7 +152,7 @@ export function App({ fetcher = defaultFetcher }) {
         url = '/api/v1/alert-rules'
         payload = { name: modalValues.name, domain_thresholds: String(modalValues.domain_thresholds).split(',').map(Number).filter(Number.isFinite), certificate_thresholds: String(modalValues.certificate_thresholds).split(',').map(Number).filter(Number.isFinite), stale_after_hours: Number(modalValues.stale_after_hours), tags: modalValues.tags ? String(modalValues.tags).split(',').map((value) => value.trim()).filter(Boolean) : [] }
       }
-      const response = await fetcher(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const response = await requester(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
         throw new Error(body.error || 'The requested change failed.')
@@ -155,21 +165,21 @@ export function App({ fetcher = defaultFetcher }) {
   }
 
   const toggleConnection = async (item) => {
-    const response = await fetcher(`/api/v1/provider-connections/${item.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !item.enabled }) })
+    const response = await requester(`/api/v1/provider-connections/${item.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !item.enabled }) })
     if (!response.ok) setError('Unable to update provider connection.')
     await loadInventory()
   }
 
   const deleteResource = async (url, message) => {
     if (!globalThis.confirm || globalThis.confirm(message)) {
-      const response = await fetcher(url, { method: 'DELETE' })
+      const response = await requester(url, { method: 'DELETE' })
       if (!response.ok) setError('Unable to delete the selected resource.')
       await loadInventory()
     }
   }
 
   const alertAction = async (id, action) => {
-    const response = await fetcher(`/api/v1/alerts/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actor: 'administrator' }) })
+    const response = await requester(`/api/v1/alerts/${id}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actor: 'administrator' }) })
     if (!response.ok) setError(`Unable to ${action} the alert.`)
     await loadInventory()
   }
@@ -261,6 +271,14 @@ export function App({ fetcher = defaultFetcher }) {
 
   const pageContent = { overview: renderOverview, domains: renderDomains, certificates: renderCertificates, alerts: renderAlerts, settings: renderSettings }[activePage]()
 
+  const saveToken = () => {
+    try {
+      if (tokenDraft) globalThis.localStorage?.setItem('cert_harbor_token', tokenDraft)
+      else globalThis.localStorage?.removeItem('cert_harbor_token')
+    } catch { /* localStorage may be unavailable in embedded browsers */ }
+    setAuthToken(tokenDraft)
+  }
+
   return (
     <Layout className="app-shell">
       <Sider breakpoint="lg" collapsedWidth="0" className="app-sider">
@@ -274,6 +292,8 @@ export function App({ fetcher = defaultFetcher }) {
             <Typography.Title level={4}>{pageTitle}</Typography.Title>
           </Space>
           <Space>
+            <Input.Password aria-label="API token" placeholder="API token" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} onPressEnter={saveToken} style={{ width: 150 }} />
+            <Button onClick={saveToken}>Use token</Button>
             {connections[0] && <Button type="primary" icon={<ReloadOutlined />} onClick={syncNow} loading={syncing}>Sync now</Button>}
             <Button icon={<ReloadOutlined />} onClick={loadInventory} loading={loading}>Refresh</Button>
           </Space>
