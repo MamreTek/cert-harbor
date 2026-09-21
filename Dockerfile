@@ -20,7 +20,7 @@ WORKDIR /app
 COPY --from=api-build /out/cert-harbor /app/cert-harbor
 COPY --from=api-build /src/examples /app/examples
 COPY --from=web-build /src/web/dist /app/web
-RUN chown -R certharbor:certharbor /app
+RUN mkdir -p /app/data && chown -R certharbor:certharbor /app
 USER certharbor
 ENV CERT_HARBOR_ADDR=0.0.0.0:8080
 ENV CERT_HARBOR_WEB_DIR=/app/web
