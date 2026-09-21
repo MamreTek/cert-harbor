@@ -30,7 +30,6 @@ func main() {
 		log.Fatalf("open catalog store: %v", err)
 	}
 	adapters := registry.New(cfg.FixturePath)
-	syncService := syncer.New(store, adapters)
 	var secrets *security.SecretBox
 	if cfg.EncryptionKey != "" {
 		secrets, err = security.NewSecretBox(cfg.EncryptionKey)
@@ -38,6 +37,7 @@ func main() {
 			log.Fatalf("initialize secret encryption: %v", err)
 		}
 	}
+	syncService := syncer.New(store, adapters, secrets)
 	alertEngine, err := alerting.OpenEngine(store, cfg.AlertsPath)
 	if err != nil {
 		log.Fatalf("open alert state: %v", err)
