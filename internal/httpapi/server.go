@@ -510,7 +510,7 @@ func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "certificate not found"})
 		return
 	}
-	item.ExpiryState = catalog.DeriveExpiryState(&item.ValidTo, item.Stale)
+	item.ExpiryState = catalog.DeriveCertificateExpiryState(item)
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -533,7 +533,7 @@ func (s *Server) exportCertificates(w http.ResponseWriter, r *http.Request) {
 	items := s.store.ListCertificatesForExport(filter)
 	rows := [][]string{{"id", "provider", "source_id", "common_name", "sans", "linked_domains", "certificate_type", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "notes", "expiry_state", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), strings.Join(item.LinkedDomains, ";"), item.CertificateType, item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveExpiryState(&item.ValidTo, item.Stale), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), strings.Join(item.LinkedDomains, ";"), item.CertificateType, item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveCertificateExpiryState(item), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "certificates.csv", rows)
 }
