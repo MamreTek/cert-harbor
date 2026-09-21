@@ -49,6 +49,7 @@ export function App({ fetcher = defaultFetcher }) {
   const [syncRuns, setSyncRuns] = useState([])
   const [auditEvents, setAuditEvents] = useState([])
   const [notificationDeliveries, setNotificationDeliveries] = useState([])
+  const [alertDeliveries, setAlertDeliveries] = useState([])
   const [deliveryPage, setDeliveryPage] = useState(1)
   const [deliveryTotal, setDeliveryTotal] = useState(0)
   const [alertDetail, setAlertDetail] = useState(null)
@@ -148,6 +149,24 @@ export function App({ fetcher = defaultFetcher }) {
       })
       .catch((loadError) => setError(loadError.message || 'Unable to load the linked alert.'))
   }, [deepLinkAlertID, fetcher, requester])
+
+  useEffect(() => {
+    if (!alertDetail?.id || !fetcher) {
+      setAlertDeliveries([])
+      return
+    }
+    let cancelled = false
+    requester(`/api/v1/notification-deliveries?alert_id=${encodeURIComponent(alertDetail.id)}&page=1&page_size=100`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Unable to load alert delivery history.')
+        const body = await response.json()
+        if (!cancelled) setAlertDeliveries(body.items ?? [])
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError.message || 'Unable to load alert delivery history.')
+      })
+    return () => { cancelled = true }
+  }, [alertDetail?.id, fetcher, requester])
 
   const syncConnection = async (connection) => {
     if (!fetcher || !connection) return
@@ -474,7 +493,7 @@ export function App({ fetcher = defaultFetcher }) {
           <Descriptions.Item label="Days remaining">{alertDetail.days_remaining ?? 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Expires at">{alertDetail.expires_at || 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Freshness">{alertDetail.freshness || 'Unknown'}</Descriptions.Item>
-          <Descriptions.Item label="Notifications">{notificationDeliveries.filter((delivery) => delivery.alert_id === alertDetail.id).map((delivery) => `${delivery.status} (${delivery.correlation_id})`).join(', ') || 'No recorded deliveries'}</Descriptions.Item>
+          <Descriptions.Item label="Notifications">{alertDeliveries.map((delivery) => `${delivery.status} (${delivery.correlation_id})`).join(', ') || 'No recorded deliveries'}</Descriptions.Item>
           <Descriptions.Item label="Source">{alertDetail.source_url ? <a href={alertDetail.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>
         </Descriptions>}
       </Modal>

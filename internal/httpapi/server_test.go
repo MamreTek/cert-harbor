@@ -168,6 +168,17 @@ func TestNotificationChannelAndDeliveryEndpoints(t *testing.T) {
 	if !auditMatched {
 		t.Fatalf("notification test correlation was not audited: delivery=%#v body=%s", failedTest.Delivery, response.Body.String())
 	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/notification-deliveries?alert_id=test-alert&page=1&page_size=20", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	var filteredDeliveries struct {
+		Items []notifications.Delivery `json:"items"`
+		Total int                      `json:"total"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &filteredDeliveries) != nil || filteredDeliveries.Total != 1 || len(filteredDeliveries.Items) != 1 || filteredDeliveries.Items[0].AlertID != "test-alert" {
+		t.Fatalf("filtered notification deliveries = %d %s", response.Code, response.Body.String())
+	}
 }
 
 func TestWorkspaceMemberManagementEndpoints(t *testing.T) {

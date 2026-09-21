@@ -100,6 +100,7 @@ describe('CertHarbor console', () => {
     try {
       const fetcher = async (url) => {
         if (url === '/api/v1/alerts/alert-1') return { ok: true, json: async () => ({ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', provider: 'cloudflare', state: 'open', severity: 'high', days_remaining: 7, freshness: 'current', source_url: 'https://provider.example/certificate/1' }) }
+        if (url === '/api/v1/notification-deliveries?alert_id=alert-1&page=1&page_size=100') return { ok: true, json: async () => ({ items: [{ id: 'delivery-1', alert_id: 'alert-1', correlation_id: 'corr-delivery-1', status: 'delivered', attempts: 1, created_at: 'now' }] }) }
         if (url === '/api/v1/alerts?page=1&page_size=20') return { ok: true, json: async () => ({ items: [], total: 0 }) }
         if (url === '/api/v1/notification-deliveries?page=1&page_size=20') return { ok: true, json: async () => ({ items: [{ id: 'delivery-1', alert_id: 'alert-1', correlation_id: 'corr-delivery-1', status: 'delivered', attempts: 1, created_at: 'now' }] }) }
         if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }

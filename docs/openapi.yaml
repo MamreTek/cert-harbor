@@ -183,7 +183,7 @@ paths:
       responses: {"200": {description: Test delivery result}, "422": {description: Delivery failed}}
   /api/v1/notification-deliveries:
     get:
-      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}, {in: query, name: alert_id, schema: {type: string}}]
       responses: {"200": {description: Paginated delivery history}}
   /api/v1/audit-events:
     get:

@@ -961,6 +961,15 @@ func (s *Server) testNotificationChannel(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) notificationDeliveries(w http.ResponseWriter, r *http.Request) {
 	allItems := s.notifications.Deliveries()
+	if alertID := strings.TrimSpace(r.URL.Query().Get("alert_id")); alertID != "" {
+		filtered := make([]notifications.Delivery, 0, len(allItems))
+		for _, item := range allItems {
+			if item.AlertID == alertID {
+				filtered = append(filtered, item)
+			}
+		}
+		allItems = filtered
+	}
 	pageNumber, pageLimit := page(r), pageSize(r)
 	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
