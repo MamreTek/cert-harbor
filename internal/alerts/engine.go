@@ -185,7 +185,8 @@ func (e *Engine) Evaluate() []Alert {
 			if !matchesRule(rule, "connection", string(connection.Provider), "", "", nil) {
 				continue
 			}
-			if connection.Status == "unhealthy" || (connection.LastSyncAt != nil && now.Sub(*connection.LastSyncAt) > time.Duration(rule.StaleAfterHours)*time.Hour) {
+			missedInitialSync := connection.LastSyncAt == nil && connection.NextSyncAt != nil && now.After(*connection.NextSyncAt)
+			if connection.Status == "unhealthy" || missedInitialSync || (connection.LastSyncAt != nil && now.Sub(*connection.LastSyncAt) > time.Duration(rule.StaleAfterHours)*time.Hour) {
 				id := rule.ID + ":" + connection.ID + ":sync-stale"
 				e.upsertAlert(Alert{ID: id, RuleID: rule.ID, AssetID: connection.ID, AssetKind: "connection", AssetName: connection.Name, Provider: string(connection.Provider), State: StateOpen, Severity: "high", Freshness: "stale", UpdatedAt: now})
 			} else {

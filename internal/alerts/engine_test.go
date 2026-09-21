@@ -271,3 +271,18 @@ func TestEvaluateAppliesAssetTypeScope(t *testing.T) {
 		}
 	}
 }
+
+func TestEvaluateCreatesAlertWhenInitialSyncIsMissed(t *testing.T) {
+	store := catalog.NewStore()
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	missed := now.Add(-time.Hour)
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true, NextSyncAt: &missed}); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewEngine(store)
+	engine.now = func() time.Time { return now }
+	items := engine.Evaluate()
+	if len(items) != 1 || items[0].AssetKind != "connection" || items[0].Freshness != "stale" {
+		t.Fatalf("missed initial sync alert = %#v", items)
+	}
+}
