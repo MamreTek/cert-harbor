@@ -71,6 +71,11 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.HandleFunc("GET /api/v1/meta", s.meta)
+	s.mux.HandleFunc("GET /api/v1/workspace", s.workspace)
+	s.mux.HandleFunc("GET /api/v1/members", s.members)
+	s.mux.HandleFunc("POST /api/v1/members", s.createMember)
+	s.mux.HandleFunc("PATCH /api/v1/members/{id}", s.updateMember)
+	s.mux.HandleFunc("DELETE /api/v1/members/{id}", s.deleteMember)
 	s.mux.HandleFunc("GET /api/v1/catalog/summary", s.summary)
 	s.mux.HandleFunc("GET /api/v1/provider-connections", s.connections)
 	s.mux.HandleFunc("POST /api/v1/provider-connections", s.createConnection)
@@ -169,6 +174,71 @@ func (s *Server) meta(w http.ResponseWriter, _ *http.Request) {
 		"version": "0.2.0",
 		"env":     s.config.Env,
 	})
+}
+
+func (s *Server) workspace(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.store.Workspace())
+}
+
+func (s *Server) members(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.store.ListMembers()})
+}
+
+type memberRequest struct {
+	ID     string `json:"id"`
+	Email  string `json:"email"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Status string `json:"status"`
+}
+
+func (s *Server) createMember(w http.ResponseWriter, r *http.Request) {
+	var request memberRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid member request"})
+		return
+	}
+	if request.ID == "" {
+		request.ID = slug(request.Email)
+	}
+	if request.Role == "" {
+		request.Role = "viewer"
+	}
+	member := catalog.Member{ID: request.ID, Email: request.Email, Name: request.Name, Role: request.Role, Status: request.Status}
+	if err := s.store.AddMember(member); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.audit(r, "member.invite", "member", request.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "member invited but audit event could not be recorded"})
+		return
+	}
+	created, _ := findMember(s.store.ListMembers(), request.ID)
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) updateMember(w http.ResponseWriter, r *http.Request) {
+	var request memberRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid member request"})
+		return
+	}
+	member, err := s.store.UpdateMember(r.PathValue("id"), request.Name, request.Role, request.Status)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = s.audit(r, "member.update", "member", member.ID, "succeeded")
+	writeJSON(w, http.StatusOK, member)
+}
+
+func (s *Server) deleteMember(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteMember(r.PathValue("id")); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = s.audit(r, "member.remove", "member", r.PathValue("id"), "succeeded")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) summary(w http.ResponseWriter, _ *http.Request) {
@@ -618,6 +688,15 @@ func findChannel(items []notifications.Channel, id string) (notifications.Channe
 		}
 	}
 	return notifications.Channel{}, false
+}
+
+func findMember(items []catalog.Member, id string) (catalog.Member, bool) {
+	for _, item := range items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return catalog.Member{}, false
 }
 
 func parseFilter(r *http.Request) catalog.Filter {

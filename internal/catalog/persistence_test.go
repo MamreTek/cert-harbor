@@ -34,4 +34,15 @@ func TestOpenStoreRestoresCatalogAfterRestart(t *testing.T) {
 	if len(connections) != 1 || connections[0].ID != "connection" {
 		t.Fatalf("restored connections = %#v", connections)
 	}
+	if err := store.AddMember(Member{ID: "viewer", Email: "viewer@example.com", Name: "Viewer", Role: "viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err = OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := reopened.ListMembers()
+	if len(members) != 2 || members[0].Email != "admin@localhost" || members[1].Email != "viewer@example.com" {
+		t.Fatalf("restored members = %#v", members)
+	}
 }

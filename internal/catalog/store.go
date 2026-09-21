@@ -50,6 +50,22 @@ type AuditEvent struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+type Workspace struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Member struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Filter struct {
 	Search   string
 	Provider string
@@ -65,17 +81,120 @@ type Store struct {
 	connections  map[string]Connection
 	syncRuns     []SyncRun
 	auditEvents  []AuditEvent
+	workspace    Workspace
+	members      map[string]Member
 	active       map[string]bool
 	filePath     string
 }
 
 func NewStore() *Store {
+	now := time.Now().UTC()
 	return &Store{
 		domains:      make(map[string]domain.Domain),
 		certificates: make(map[string]domain.Certificate),
 		connections:  make(map[string]Connection),
+		workspace:    Workspace{ID: "default", Name: "CertHarbor", CreatedAt: now},
+		members:      map[string]Member{"local-admin": {ID: "local-admin", Email: "admin@localhost", Name: "Local administrator", Role: "administrator", Status: "active", CreatedAt: now, UpdatedAt: now}},
 		active:       make(map[string]bool),
 	}
+}
+
+func (s *Store) Workspace() Workspace {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.workspace
+}
+
+func (s *Store) ListMembers() []Member {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]Member, 0, len(s.members))
+	for _, member := range s.members {
+		items = append(items, member)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Email < items[j].Email })
+	return items
+}
+
+func (s *Store) AddMember(member Member) error {
+	if member.ID == "" || member.Email == "" || member.Name == "" {
+		return errors.New("member id, email, and name are required")
+	}
+	if member.Role != "administrator" && member.Role != "viewer" {
+		return errors.New("member role must be administrator or viewer")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.members[member.ID]; exists {
+		return errors.New("member already exists")
+	}
+	now := time.Now().UTC()
+	if member.Status == "" {
+		member.Status = "invited"
+	}
+	if member.CreatedAt.IsZero() {
+		member.CreatedAt = now
+	}
+	member.UpdatedAt = now
+	s.members[member.ID] = member
+	return s.persistLocked()
+}
+
+func (s *Store) UpdateMember(id, name, role, status string) (Member, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	member, ok := s.members[id]
+	if !ok {
+		return Member{}, errors.New("member not found")
+	}
+	if name != "" {
+		member.Name = name
+	}
+	if role != "" && role != "administrator" && role != "viewer" {
+		return Member{}, errors.New("member role must be administrator or viewer")
+	}
+	if role != "" {
+		if member.Role == "administrator" && role != "administrator" && s.adminCountLocked() == 1 {
+			return Member{}, errors.New("workspace must retain an administrator")
+		}
+		member.Role = role
+	}
+	if status != "" {
+		if status != "active" && status != "invited" && status != "suspended" {
+			return Member{}, errors.New("member status must be active, invited, or suspended")
+		}
+		member.Status = status
+	}
+	member.UpdatedAt = time.Now().UTC()
+	s.members[id] = member
+	if err := s.persistLocked(); err != nil {
+		return Member{}, err
+	}
+	return member, nil
+}
+
+func (s *Store) DeleteMember(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	member, ok := s.members[id]
+	if !ok {
+		return errors.New("member not found")
+	}
+	if member.Role == "administrator" && s.adminCountLocked() == 1 {
+		return errors.New("workspace must retain an administrator")
+	}
+	delete(s.members, id)
+	return s.persistLocked()
+}
+
+func (s *Store) adminCountLocked() int {
+	count := 0
+	for _, member := range s.members {
+		if member.Role == "administrator" && member.Status != "suspended" {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *Store) AddConnection(connection Connection) error {

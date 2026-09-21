@@ -139,6 +139,45 @@ func TestNotificationChannelAndDeliveryEndpoints(t *testing.T) {
 	}
 }
 
+func TestWorkspaceMemberManagementEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"default"`) {
+		t.Fatalf("workspace response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/members", strings.NewReader(`{"email":"alice@example.com","name":"Alice","role":"viewer"}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"role":"viewer"`) || !strings.Contains(response.Body.String(), `"status":"invited"`) {
+		t.Fatalf("create member response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/members/alice-example-com", strings.NewReader(`{"role":"administrator","status":"active"}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"role":"administrator"`) || !strings.Contains(response.Body.String(), `"status":"active"`) {
+		t.Fatalf("update member response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/members/alice-example-com", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete member response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/members/local-admin", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "retain an administrator") {
+		t.Fatalf("last administrator deletion response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestSyncAndInventoryEndpoints(t *testing.T) {
 	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
 	store := catalog.NewStore()
