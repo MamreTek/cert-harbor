@@ -95,6 +95,37 @@ describe('CertHarbor console', () => {
     await waitFor(() => expect(calls.some((url) => url.includes('/domains?page=2&page_size=20'))).toBe(true))
   })
 
+  it('exports the filtered domain inventory with the configured token', async () => {
+    const calls = []
+    const originalCreateObjectURL = globalThis.URL.createObjectURL
+    const originalRevokeObjectURL = globalThis.URL.revokeObjectURL
+    const originalAnchorClick = HTMLAnchorElement.prototype.click
+    globalThis.URL.createObjectURL = () => 'blob:domains'
+    globalThis.URL.revokeObjectURL = () => {}
+    HTMLAnchorElement.prototype.click = () => {}
+    const fetcher = async (url, options = {}) => {
+      calls.push({ url, options })
+      if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 1, certificates: 0, connections: 0, stale_assets: 0 }) }
+      if (url.includes('/domains?')) return { ok: true, json: async () => ({ items: [{ id: 'domain-1', name: 'example.com', provider: 'cloudflare', last_seen_at: 'now' }], total: 1 }) }
+      if (url.startsWith('/api/v1/export/domains.csv')) return { ok: true, blob: async () => new Blob(['name\nexample.com\n'], { type: 'text/csv' }) }
+      return { ok: true, json: async () => ({ items: [] }) }
+    }
+    try {
+      render(<App fetcher={fetcher} />)
+      await waitFor(() => expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument())
+      fireEvent.change(screen.getByLabelText('API token'), { target: { value: 'viewer-secret' } })
+      fireEvent.click(screen.getByText('Use token'))
+      fireEvent.click(screen.getByText('Domain inventory'))
+      await waitFor(() => expect(screen.getByText('Export CSV')).toBeInTheDocument())
+      fireEvent.click(screen.getByText('Export CSV'))
+      await waitFor(() => expect(calls.some(({ url, options }) => url.startsWith('/api/v1/export/domains.csv') && options.headers?.['X-CertHarbor-Token'] === 'viewer-secret')).toBe(true))
+    } finally {
+      globalThis.URL.createObjectURL = originalCreateObjectURL
+      globalThis.URL.revokeObjectURL = originalRevokeObjectURL
+      HTMLAnchorElement.prototype.click = originalAnchorClick
+    }
+  })
+
   it('opens a linked alert deep link', async () => {
     const originalPath = window.location.pathname
     window.history.pushState({}, '', '/alerts/alert-1')

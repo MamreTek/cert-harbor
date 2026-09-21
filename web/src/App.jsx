@@ -319,6 +319,26 @@ export function App({ fetcher = defaultFetcher }) {
     await loadInventory()
   }
 
+  const exportInventory = async (kind) => {
+    setError('')
+    try {
+      const response = await requester(`/api/v1/export/${kind}.csv${filterQuery ? `?${filterQuery}` : ''}`)
+      if (!response.ok) throw new Error('Unable to export the filtered inventory.')
+      const blob = await response.blob()
+      const url = globalThis.URL?.createObjectURL(blob)
+      if (!url) throw new Error('This browser cannot create a download.')
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${kind}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      globalThis.URL.revokeObjectURL(url)
+    } catch (exportError) {
+      setError(exportError.message || 'Unable to export the filtered inventory.')
+    }
+  }
+
   const rows = useMemo(() => [
     ...domains.map((item) => ({ key: item.id, asset: item.name, type: 'Domain', provider: item.provider, state: item.stale ? 'Stale' : 'Healthy', lastSync: item.last_seen_at })),
     ...certificates.map((item) => ({ key: item.id, asset: item.common_name, type: 'Certificate', provider: item.provider, state: item.stale ? 'Stale' : 'Healthy', lastSync: item.last_seen_at })),
@@ -366,7 +386,7 @@ export function App({ fetcher = defaultFetcher }) {
     </Card>
   </>
 
-  const renderDomains = () => <Card title="Domains" extra={renderInventoryFilters()}>
+  const renderDomains = () => <Card title="Domains" extra={<Space wrap>{renderInventoryFilters()}<Button onClick={() => exportInventory('domains')}>Export CSV</Button></Space>}>
     <Table rowKey="id" dataSource={domains} pagination={{ current: domainPage, pageSize: 20, total: domainTotal, showSizeChanger: false, onChange: setDomainPage }} locale={{ emptyText: 'No domains synchronized yet' }} columns={[
       { title: 'Domain', dataIndex: 'name', key: 'name' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
@@ -379,7 +399,7 @@ export function App({ fetcher = defaultFetcher }) {
     ]} />
   </Card>
 
-  const renderCertificates = () => <Card title="Certificates" extra={renderInventoryFilters()}>
+  const renderCertificates = () => <Card title="Certificates" extra={<Space wrap>{renderInventoryFilters()}<Button onClick={() => exportInventory('certificates')}>Export CSV</Button></Space>}>
     <Table rowKey="id" dataSource={certificates} pagination={{ current: certificatePage, pageSize: 20, total: certificateTotal, showSizeChanger: false, onChange: setCertificatePage }} locale={{ emptyText: 'No certificates synchronized yet' }} columns={[
       { title: 'Common name', dataIndex: 'common_name', key: 'common_name' },
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },
