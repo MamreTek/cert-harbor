@@ -341,6 +341,37 @@ func TestQueuedAlertSurvivesRestartUntilDelivered(t *testing.T) {
 	}
 }
 
+func TestQueuedAlertWaitsForChannelAddedLater(t *testing.T) {
+	box, err := security.NewSecretBox("notification-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := box.Encrypt([]byte("webhook-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	service := NewService(box)
+	alert := alerts.Alert{ID: "waiting-alert", State: alerts.StateOpen}
+	if err := service.Queue(alert); err != nil {
+		t.Fatal(err)
+	}
+	if deliveries := service.DeliverOutbox(context.Background()); len(deliveries) != 0 {
+		t.Fatalf("unexpected delivery without an enabled channel: %#v", deliveries)
+	}
+	if err := service.AddChannel(Channel{ID: "webhook", Name: "Webhook", Kind: KindWebhook, Endpoint: server.URL, Enabled: true, SigningSecretCiphertext: secret}); err != nil {
+		t.Fatal(err)
+	}
+	deliveries := service.DeliverOutbox(context.Background())
+	if len(deliveries) != 1 || deliveries[0].Status != "delivered" {
+		t.Fatalf("queued alert was not delivered after channel creation: %#v", deliveries)
+	}
+}
+
 func TestRotateNotificationSecrets(t *testing.T) {
 	oldBox, err := security.NewSecretBox("old-key")
 	if err != nil {

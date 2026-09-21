@@ -10,6 +10,8 @@ For production, set `POSTGRES_PASSWORD` and `CERT_HARBOR_DATABASE_URL` through a
 
 Each successful provider sync reconciles assets for that connection. Assets absent from a successful response are retained with `stale=true` and remain queryable so operators can investigate provider-side removal or permission changes. A failed, cancelled, or partially unreadable sync does not change the last-known inventory. CertHarbor does not automatically purge stale assets in the MVP; deleting the provider connection explicitly removes its associated assets.
 
+Notification outbox entries remain durable while no notification channel is enabled, and are delivered when an enabled channel is later added. Failed deliveries remain queued for the background retry loop; an alert state is not considered delivered until a channel returns a successful response.
+
 ## Encryption-key rotation
 
 Set the replacement value in `CERT_HARBOR_ENCRYPTION_KEY` and the previous value in `CERT_HARBOR_ENCRYPTION_KEY_OLD`. On startup CertHarbor re-encrypts provider credentials and notification secrets without changing their ownership or IDs. Confirm the service is healthy and test one provider connection and notification channel, then remove `CERT_HARBOR_ENCRYPTION_KEY_OLD` and restart again.

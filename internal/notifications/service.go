@@ -358,7 +358,7 @@ func (s *Service) DeliverOutbox(ctx context.Context) []Delivery {
 	for _, item := range items {
 		current := s.dispatch(ctx, item.Alert)
 		deliveries = append(deliveries, current...)
-		if len(current) == 0 || allDelivered(current) {
+		if len(current) > 0 && allDelivered(current) {
 			s.mu.Lock()
 			s.removeOutboxLocked(item.ID)
 			_ = s.persistLocked()
@@ -378,10 +378,12 @@ func allDelivered(deliveries []Delivery) bool {
 }
 
 func (s *Service) hasDeliveredForAllEnabledLocked(alert alerts.Alert) bool {
+	enabledChannels := 0
 	for _, channel := range s.channels {
 		if !channel.Enabled {
 			continue
 		}
+		enabledChannels++
 		delivered := false
 		for _, delivery := range s.deliveries {
 			if delivery.ChannelID == channel.ID && delivery.AlertID == alert.ID && delivery.AlertState == alert.State && delivery.Status == "delivered" {
@@ -393,7 +395,7 @@ func (s *Service) hasDeliveredForAllEnabledLocked(alert alerts.Alert) bool {
 			return false
 		}
 	}
-	return true
+	return enabledChannels > 0
 }
 
 func (s *Service) hasQueuedLocked(alert alerts.Alert) bool {
