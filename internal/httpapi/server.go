@@ -298,11 +298,12 @@ func (s *Server) connections(w http.ResponseWriter, _ *http.Request) {
 }
 
 type connectionRequest struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Provider    string            `json:"provider"`
-	Enabled     *bool             `json:"enabled"`
-	Credentials map[string]string `json:"credentials"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Provider     string            `json:"provider"`
+	Enabled      *bool             `json:"enabled"`
+	SyncInterval string            `json:"sync_interval"`
+	Credentials  map[string]string `json:"credentials"`
 }
 
 func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +325,7 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
 		enabled = *request.Enabled
 	}
 	adapter := registry.New(s.config.FixturePath)[provider]
-	connection := catalog.Connection{ID: request.ID, Name: request.Name, Provider: provider, Enabled: enabled, Source: "api", FixturePath: s.config.FixturePath, Capabilities: adapter.Capabilities()}
+	connection := catalog.Connection{ID: request.ID, Name: request.Name, Provider: provider, Enabled: enabled, SyncInterval: request.SyncInterval, Source: "api", FixturePath: s.config.FixturePath, Capabilities: adapter.Capabilities()}
 	if err := s.store.AddConnection(connection); err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
@@ -369,7 +370,7 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 	if request.Enabled != nil {
 		enabled = *request.Enabled
 	}
-	connection, err := s.store.UpdateConnection(current.ID, request.Name, enabled)
+	connection, err := s.store.UpdateConnection(current.ID, request.Name, enabled, request.SyncInterval)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

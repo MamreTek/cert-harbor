@@ -28,16 +28,24 @@ func (s *Scheduler) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
-	ticker := time.NewTicker(interval)
+	s.initializeNextRuns(time.Now().UTC())
+	ticker := time.NewTicker(minimumTick(interval))
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.RunOnce(ctx)
+			s.RunDue(ctx)
 		}
 	}
+}
+
+func minimumTick(interval time.Duration) time.Duration {
+	if interval < time.Minute {
+		return interval
+	}
+	return time.Minute
 }
 
 func (s *Scheduler) RunOnce(ctx context.Context) {
@@ -52,4 +60,37 @@ func (s *Scheduler) RunOnce(ctx context.Context) {
 	if s.onCycle != nil {
 		s.onCycle(ctx)
 	}
+}
+
+func (s *Scheduler) RunDue(ctx context.Context) {
+	now := time.Now().UTC()
+	for _, connection := range s.store.ListConnections() {
+		if !connection.Enabled || (connection.NextSyncAt != nil && now.Before(*connection.NextSyncAt)) {
+			continue
+		}
+		if _, err := s.syncer.Sync(ctx, connection.ID); err != nil {
+			s.logf("scheduled sync failed connection=%s provider=%s error=%v", connection.ID, connection.Provider, err)
+		}
+		s.scheduleNext(connection, now)
+	}
+	if s.onCycle != nil {
+		s.onCycle(ctx)
+	}
+}
+
+func (s *Scheduler) initializeNextRuns(now time.Time) {
+	for _, connection := range s.store.ListConnections() {
+		if connection.Enabled && connection.NextSyncAt == nil {
+			s.scheduleNext(connection, now)
+		}
+	}
+}
+
+func (s *Scheduler) scheduleNext(connection catalog.Connection, now time.Time) {
+	interval, err := time.ParseDuration(connection.SyncInterval)
+	if err != nil || interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	next := now.Add(interval)
+	_ = s.store.SetNextSyncAt(connection.ID, next)
 }

@@ -167,7 +167,7 @@ export function App({ fetcher = defaultFetcher }) {
 
   const renderSettings = () => <>
     <Row gutter={[16, 16]}>
-      <Col xs={24} lg={8}><Card title="Provider connections"><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Provider connections"><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Members"><Table rowKey="id" size="small" pagination={false} dataSource={members} columns={[{ title: 'Email', dataIndex: 'email' }, { title: 'Role', dataIndex: 'role' }, { title: 'Status', dataIndex: 'status' }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Notification channels"><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }]} /></Card></Col>
     </Row>

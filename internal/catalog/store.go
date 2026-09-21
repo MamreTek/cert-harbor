@@ -16,6 +16,8 @@ type Connection struct {
 	Name                  string                 `json:"name"`
 	Provider              providers.Provider     `json:"provider"`
 	Enabled               bool                   `json:"enabled"`
+	SyncInterval          string                 `json:"sync_interval"`
+	NextSyncAt            *time.Time             `json:"next_sync_at,omitempty"`
 	Source                string                 `json:"source"`
 	FixturePath           string                 `json:"-"`
 	Capabilities          providers.Capabilities `json:"capabilities"`
@@ -225,6 +227,12 @@ func (s *Store) AddConnection(connection Connection) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if connection.SyncInterval == "" {
+		connection.SyncInterval = "24h"
+	}
+	if interval, err := time.ParseDuration(connection.SyncInterval); err != nil || interval <= 0 {
+		return errors.New("sync_interval must be a positive duration")
+	}
 	if _, exists := s.connections[connection.ID]; exists {
 		return errors.New("connection already exists")
 	}
@@ -242,7 +250,7 @@ func (s *Store) GetConnection(id string) (Connection, bool) {
 	return connection, ok
 }
 
-func (s *Store) UpdateConnection(id, name string, enabled bool) (Connection, error) {
+func (s *Store) UpdateConnection(id, name string, enabled bool, schedules ...string) (Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	connection, ok := s.connections[id]
@@ -253,6 +261,13 @@ func (s *Store) UpdateConnection(id, name string, enabled bool) (Connection, err
 		connection.Name = name
 	}
 	connection.Enabled = enabled
+	if len(schedules) > 0 && schedules[0] != "" {
+		interval, err := time.ParseDuration(schedules[0])
+		if err != nil || interval <= 0 {
+			return Connection{}, errors.New("sync_interval must be a positive duration")
+		}
+		connection.SyncInterval = schedules[0]
+	}
 	s.connections[id] = connection
 	if err := s.persistLocked(); err != nil {
 		return Connection{}, err
@@ -302,6 +317,19 @@ func (s *Store) ListConnections() []Connection {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	return items
+}
+
+func (s *Store) SetNextSyncAt(id string, next time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	connection, ok := s.connections[id]
+	if !ok {
+		return errors.New("connection not found")
+	}
+	next = next.UTC()
+	connection.NextSyncAt = &next
+	s.connections[id] = connection
+	return s.persistLocked()
 }
 
 func (s *Store) BeginSync(connectionID string, provider providers.Provider, now time.Time) (SyncRun, error) {

@@ -20,6 +20,8 @@ type persistedConnection struct {
 	Name                  string                 `json:"name"`
 	Provider              providers.Provider     `json:"provider"`
 	Enabled               bool                   `json:"enabled"`
+	SyncInterval          string                 `json:"sync_interval"`
+	NextSyncAt            *time.Time             `json:"next_sync_at,omitempty"`
 	Source                string                 `json:"source"`
 	FixturePath           string                 `json:"fixture_path,omitempty"`
 	Capabilities          providers.Capabilities `json:"capabilities"`
@@ -107,8 +109,12 @@ func (s *Store) restore(data []byte) error {
 		s.certificates = snapshot.Certificates
 	}
 	for id, connection := range snapshot.Connections {
+		if connection.SyncInterval == "" {
+			connection.SyncInterval = "24h"
+		}
 		s.connections[id] = Connection{
 			ID: connection.ID, Name: connection.Name, Provider: connection.Provider, Enabled: connection.Enabled,
+			SyncInterval: connection.SyncInterval, NextSyncAt: connection.NextSyncAt,
 			Source: connection.Source, FixturePath: connection.FixturePath, Capabilities: connection.Capabilities,
 			Status: connection.Status, LastSyncAt: connection.LastSyncAt, LastSyncError: connection.LastSyncError,
 			CredentialsStored: connection.CredentialsStored, CredentialsCiphertext: connection.CredentialsCiphertext,
@@ -139,6 +145,7 @@ func (s *Store) persistLocked() error {
 	for id, connection := range s.connections {
 		snapshot.Connections[id] = persistedConnection{
 			ID: connection.ID, Name: connection.Name, Provider: connection.Provider, Enabled: connection.Enabled,
+			SyncInterval: connection.SyncInterval, NextSyncAt: connection.NextSyncAt,
 			Source: connection.Source, FixturePath: connection.FixturePath, Capabilities: connection.Capabilities,
 			Status: connection.Status, LastSyncAt: connection.LastSyncAt, LastSyncError: connection.LastSyncError,
 			CredentialsStored: connection.CredentialsStored, CredentialsCiphertext: connection.CredentialsCiphertext,

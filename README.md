@@ -41,7 +41,7 @@ curl http://localhost:8080/api/v1/certificates
 
 The same flow works with Compose by setting `CERT_HARBOR_DEMO=1` in `.env` before `docker compose up --build`. Fixture mode establishes the shared contract and deterministic reconciliation path. All four provider connections use live read-only adapters when encrypted credentials are supplied; fixture mode remains available for local demo and contract tests.
 
-The scheduler runs enabled connections once per configured interval (daily by default), then evaluates every known asset and drains the notification outbox. Set `CERT_HARBOR_SYNC_INTERVAL=15m` or another Go duration for local testing. The catalog, alert state, and notification state use `CERT_HARBOR_DATA_PATH`, `CERT_HARBOR_ALERTS_PATH`, and `CERT_HARBOR_NOTIFICATIONS_PATH`; Compose defaults all three to the persistent `/app/data` volume.
+The scheduler runs enabled connections according to each connection's `sync_interval` (24h by default), then evaluates every known asset and drains the notification outbox. `CERT_HARBOR_SYNC_INTERVAL=15m` remains the scheduler wake-up fallback for local testing; API-created connections can set their own Go duration. The catalog, alert state, and notification state use `CERT_HARBOR_DATA_PATH`, `CERT_HARBOR_ALERTS_PATH`, and `CERT_HARBOR_NOTIFICATIONS_PATH`; Compose defaults all three to the persistent `/app/data` volume.
 
 The inventory API currently provides:
 

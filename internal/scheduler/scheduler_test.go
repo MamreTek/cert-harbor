@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/providers"
@@ -44,5 +45,28 @@ func TestRunOnceRunsMonitorCallbackAfterSynchronization(t *testing.T) {
 	scheduler.RunOnce(context.Background())
 	if callbackCount.Load() != 1 {
 		t.Fatalf("monitor callback count = %d, want 1", callbackCount.Load())
+	}
+}
+
+func TestRunDueHonorsPerConnectionScheduleAndAdvancesNextRun(t *testing.T) {
+	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "enabled", Name: "Enabled", Provider: providers.Cloudflare, Enabled: true, SyncInterval: "5m"}); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().UTC().Add(-time.Minute)
+	if err := store.SetNextSyncAt("enabled", past); err != nil {
+		t.Fatal(err)
+	}
+	service := syncer.New(store, registry.New(fixture))
+	scheduler := New(store, service)
+	scheduler.logf = func(string, ...any) {}
+	scheduler.RunDue(context.Background())
+	connection, ok := store.GetConnection("enabled")
+	if !ok || connection.NextSyncAt == nil || !connection.NextSyncAt.After(time.Now().UTC()) {
+		t.Fatalf("next schedule was not advanced: %#v", connection)
+	}
+	if _, total := store.ListDomains(catalog.Filter{Page: 1, PageSize: 50}); total != 1 {
+		t.Fatalf("scheduled inventory total = %d, want 1", total)
 	}
 }
