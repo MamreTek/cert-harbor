@@ -93,4 +93,23 @@ describe('CertHarbor console', () => {
     fireEvent.click(screen.getByTitle('Next Page'))
     await waitFor(() => expect(calls.some((url) => url.includes('/domains?page=2&page_size=20'))).toBe(true))
   })
+
+  it('opens a linked alert deep link', async () => {
+    const originalPath = window.location.pathname
+    window.history.pushState({}, '', '/alerts/alert-1')
+    try {
+      const fetcher = async (url) => {
+        if (url === '/api/v1/alerts/alert-1') return { ok: true, json: async () => ({ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', provider: 'cloudflare', state: 'open', severity: 'high', days_remaining: 7, freshness: 'current', source_url: 'https://provider.example/certificate/1' }) }
+        if (url === '/api/v1/alerts') return { ok: true, json: async () => ({ items: [] }) }
+        if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }
+        return { ok: true, json: async () => ({ items: [] }) }
+      }
+      render(<App fetcher={fetcher} />)
+      await waitFor(() => expect(screen.getByText('Alert details')).toBeInTheDocument())
+      expect(screen.getByText('example.com')).toBeInTheDocument()
+      expect(screen.getByText('Open provider source')).toBeInTheDocument()
+    } finally {
+      window.history.pushState({}, '', originalPath)
+    }
+  })
 })

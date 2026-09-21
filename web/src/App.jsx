@@ -45,6 +45,11 @@ export function App({ fetcher = defaultFetcher }) {
   const [channels, setChannels] = useState([])
   const [syncRuns, setSyncRuns] = useState([])
   const [auditEvents, setAuditEvents] = useState([])
+  const [alertDetail, setAlertDetail] = useState(null)
+  const [deepLinkAlertID] = useState(() => {
+    const match = globalThis.location?.pathname?.match(/^\/alerts\/([^/]+)$/)
+    return match ? decodeURIComponent(match[1]) : ''
+  })
   const [activePage, setActivePage] = useState('overview')
   const [loading, setLoading] = useState(Boolean(fetcher))
   const [syncing, setSyncing] = useState(false)
@@ -116,6 +121,18 @@ export function App({ fetcher = defaultFetcher }) {
   useEffect(() => {
     loadInventory()
   }, [loadInventory])
+
+  useEffect(() => {
+    if (!deepLinkAlertID || !fetcher) return
+    setActivePage('alerts')
+    requester(`/api/v1/alerts/${encodeURIComponent(deepLinkAlertID)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Unable to load the linked alert.')
+        const item = await response.json()
+        if (item.id) setAlertDetail(item)
+      })
+      .catch((loadError) => setError(loadError.message || 'Unable to load the linked alert.'))
+  }, [deepLinkAlertID, fetcher, requester])
 
   const syncConnection = async (connection) => {
     if (!fetcher || !connection) return
@@ -331,6 +348,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Updated', dataIndex: 'updated_at', key: 'updated_at' },
       { title: 'Source', render: (_, item) => item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">Provider</a> : 'Unavailable' },
+      { title: 'Details', render: (_, item) => <Button size="small" onClick={() => setAlertDetail(item)}>View</Button> },
       { title: 'Actions', render: (_, item) => <Space>
         {item.state === 'open' && <Button size="small" onClick={() => alertAction(item.id, 'acknowledge')}>Acknowledge</Button>}
         {item.state !== 'resolved' && <Button size="small" onClick={() => alertAction(item.id, 'resolve')}>Resolve</Button>}
@@ -421,6 +439,19 @@ export function App({ fetcher = defaultFetcher }) {
           </>}
           <Descriptions.Item label="Last seen">{detailItem.last_seen_at}</Descriptions.Item>
           <Descriptions.Item label="Source">{detailItem.source_url ? <a href={detailItem.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>
+        </Descriptions>}
+      </Modal>
+      <Modal open={Boolean(alertDetail)} title="Alert details" footer={null} onCancel={() => setAlertDetail(null)}>
+        {alertDetail && <Descriptions bordered column={1} size="small">
+          <Descriptions.Item label="Asset">{alertDetail.asset_name}</Descriptions.Item>
+          <Descriptions.Item label="Type">{alertDetail.asset_kind}</Descriptions.Item>
+          <Descriptions.Item label="Provider">{alertDetail.provider}</Descriptions.Item>
+          <Descriptions.Item label="State">{alertDetail.state}</Descriptions.Item>
+          <Descriptions.Item label="Severity">{alertDetail.severity}</Descriptions.Item>
+          <Descriptions.Item label="Days remaining">{alertDetail.days_remaining ?? 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Expires at">{alertDetail.expires_at || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Freshness">{alertDetail.freshness || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="Source">{alertDetail.source_url ? <a href={alertDetail.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>
         </Descriptions>}
       </Modal>
     </Layout>
