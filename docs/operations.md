@@ -34,3 +34,11 @@ When a disposable PostgreSQL instance is available, run the catalog round-trip t
 CERT_HARBOR_TEST_DATABASE_URL='postgres://cert_harbor:password@127.0.0.1:5432/cert_harbor?sslmode=disable' \
   go test ./internal/catalog -run TestPostgresCatalogRoundTrip -count=1
 ```
+
+The normalized in-process inventory baseline can be repeated with 100,000 domains and 100,000 certificates:
+
+```sh
+go test ./internal/catalog -run '^$' -bench BenchmarkListNormalizedAssets100k -benchtime=1x -count=1
+```
+
+The benchmark exercises filtered, sorted, paginated reads; the nominal target is under 500 ms per query. PostgreSQL latency should be checked separately with the disposable database test and deployment-sized data.
