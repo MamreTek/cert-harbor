@@ -1,6 +1,6 @@
 # Provider permission checklist
 
-CertHarbor is read-only against providers. The current adapters are fixture-backed contract adapters; live API clients must use the scopes below and must not request create, update, delete, certificate download, deployment, or DNS-record write permissions.
+CertHarbor is read-only against providers. Live adapters use the scopes below and must not request create, update, delete, certificate download, deployment, or DNS-record write permissions. Fixture mode remains available for deterministic local contract tests.
 
 Provider permission names change over time. Verify the final policy against the linked provider reference before deploying a live adapter.
 
