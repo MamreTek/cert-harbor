@@ -414,4 +414,14 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), evaluated.Items[0].ID) {
 		t.Fatalf("alert detail status = %d body=%s", response.Code, response.Body.String())
 	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/alerts/"+evaluated.Items[0].ID+"/events", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	var alertEventPage struct {
+		Items []alerting.Event `json:"items"`
+		Total int              `json:"total"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &alertEventPage) != nil || alertEventPage.Total == 0 || len(alertEventPage.Items) == 0 {
+		t.Fatalf("alert event detail response = %d %s", response.Code, response.Body.String())
+	}
 }

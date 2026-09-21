@@ -59,6 +59,7 @@ export function App({ fetcher = defaultFetcher }) {
   const [deliveryPage, setDeliveryPage] = useState(1)
   const [deliveryTotal, setDeliveryTotal] = useState(0)
   const [alertDetail, setAlertDetail] = useState(null)
+  const [alertEvents, setAlertEvents] = useState([])
   const [deepLinkAlertID] = useState(() => {
     const match = globalThis.location?.pathname?.match(/^\/alerts\/([^/]+)$/)
     return match ? decodeURIComponent(match[1]) : ''
@@ -162,14 +163,22 @@ export function App({ fetcher = defaultFetcher }) {
   useEffect(() => {
     if (!alertDetail?.id || !fetcher) {
       setAlertDeliveries([])
+      setAlertEvents([])
       return
     }
     let cancelled = false
-    requester(`/api/v1/notification-deliveries?alert_id=${encodeURIComponent(alertDetail.id)}&page=1&page_size=100`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load alert delivery history.')
-        const body = await response.json()
-        if (!cancelled) setAlertDeliveries(body.items ?? [])
+    Promise.all([
+      requester(`/api/v1/notification-deliveries?alert_id=${encodeURIComponent(alertDetail.id)}&page=1&page_size=100`),
+      requester(`/api/v1/alerts/${encodeURIComponent(alertDetail.id)}/events`),
+    ])
+      .then(async ([deliveryResponse, eventResponse]) => {
+        if (!deliveryResponse.ok) throw new Error('Unable to load alert delivery history.')
+        if (!eventResponse.ok) throw new Error('Unable to load alert event history.')
+        const [deliveryBody, eventBody] = await Promise.all([deliveryResponse.json(), eventResponse.json()])
+        if (!cancelled) {
+          setAlertDeliveries(deliveryBody.items ?? [])
+          setAlertEvents(eventBody.items ?? [])
+        }
       })
       .catch((loadError) => {
         if (!cancelled) setError(loadError.message || 'Unable to load alert delivery history.')
@@ -536,6 +545,7 @@ export function App({ fetcher = defaultFetcher }) {
           <Descriptions.Item label="Days remaining">{alertDetail.days_remaining ?? 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Expires at">{formatTimestamp(alertDetail.expires_at, timeZone)}</Descriptions.Item>
           <Descriptions.Item label="Freshness">{alertDetail.freshness || 'Unknown'}</Descriptions.Item>
+          <Descriptions.Item label="State history">{alertEvents.map((event) => `${event.from_state || '—'} → ${event.to_state} by ${event.actor}${event.note ? ` (${event.note})` : ''}`).join(' · ') || 'No recorded transitions'}</Descriptions.Item>
           <Descriptions.Item label="Notifications">{alertDeliveries.map((delivery) => `${delivery.status} (${delivery.correlation_id})`).join(', ') || 'No recorded deliveries'}</Descriptions.Item>
           <Descriptions.Item label="Source">{alertDetail.source_url ? <a href={alertDetail.source_url} target="_blank" rel="noreferrer">Open provider source</a> : 'Unavailable'}</Descriptions.Item>
         </Descriptions>}

@@ -133,6 +133,7 @@ describe('CertHarbor console', () => {
       const fetcher = async (url) => {
         if (url === '/api/v1/alerts/alert-1') return { ok: true, json: async () => ({ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', provider: 'cloudflare', state: 'open', severity: 'high', days_remaining: 7, freshness: 'current', source_url: 'https://provider.example/certificate/1' }) }
         if (url === '/api/v1/notification-deliveries?alert_id=alert-1&page=1&page_size=100') return { ok: true, json: async () => ({ items: [{ id: 'delivery-1', alert_id: 'alert-1', correlation_id: 'corr-delivery-1', status: 'delivered', attempts: 1, created_at: 'now' }] }) }
+        if (url === '/api/v1/alerts/alert-1/events') return { ok: true, json: async () => ({ items: [{ id: 'event-1', alert_id: 'alert-1', from_state: 'open', to_state: 'acknowledged', actor: 'administrator', note: 'tracking' }] }) }
         if (url === '/api/v1/alerts?page=1&page_size=20') return { ok: true, json: async () => ({ items: [], total: 0 }) }
         if (url === '/api/v1/notification-deliveries?page=1&page_size=20') return { ok: true, json: async () => ({ items: [{ id: 'delivery-1', alert_id: 'alert-1', correlation_id: 'corr-delivery-1', status: 'delivered', attempts: 1, created_at: 'now' }] }) }
         if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }
@@ -142,6 +143,7 @@ describe('CertHarbor console', () => {
       await waitFor(() => expect(screen.getByText('Alert details')).toBeInTheDocument())
       expect(screen.getByText('example.com')).toBeInTheDocument()
       expect(screen.getByText('Open provider source')).toBeInTheDocument()
+      expect(screen.getByText('open → acknowledged by administrator (tracking)')).toBeInTheDocument()
       expect(screen.getByText('delivered (corr-delivery-1)')).toBeInTheDocument()
     } finally {
       window.history.pushState({}, '', originalPath)

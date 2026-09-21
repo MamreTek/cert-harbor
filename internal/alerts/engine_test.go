@@ -59,6 +59,10 @@ func TestEvaluateCreatesStableExpiringAlertAndTransitions(t *testing.T) {
 	if len(engine.Events()) != 2 || engine.Alerts()[0].State != StateAcknowledged {
 		t.Fatalf("missing acknowledgement event: %#v %#v", engine.Alerts(), engine.Events())
 	}
+	filteredEvents := engine.EventsFor(alerts[0].ID)
+	if len(filteredEvents) != 2 || filteredEvents[1].ToState != StateAcknowledged || filteredEvents[1].Note != "tracking" {
+		t.Fatalf("unexpected alert-specific event history: %#v", filteredEvents)
+	}
 	auditMatched := false
 	for _, event := range store.ListAuditEvents() {
 		if event.Action == "alert.open" && event.ObjectID == alerts[0].ID && event.CorrelationID != "" {

@@ -109,6 +109,7 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("GET /api/v1/audit-events", s.auditEvents)
 	s.mux.HandleFunc("GET /api/v1/alerts", s.alertList)
 	s.mux.HandleFunc("GET /api/v1/alerts/{id}", s.alertDetail)
+	s.mux.HandleFunc("GET /api/v1/alerts/{id}/events", s.alertDetailEvents)
 	s.mux.HandleFunc("GET /api/v1/alert-rules", s.alertRules)
 	s.mux.HandleFunc("POST /api/v1/alert-rules", s.createAlertRule)
 	s.mux.HandleFunc("PATCH /api/v1/alert-rules/{id}", s.updateAlertRule)
@@ -602,6 +603,19 @@ func (s *Server) alertDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, alert)
+}
+
+func (s *Server) alertDetailEvents(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.alerts.Get(r.PathValue("id")); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		return
+	}
+	items := s.alerts.EventsFor(r.PathValue("id"))
+	pageSize := len(items)
+	if pageSize == 0 {
+		pageSize = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items), "page": 1, "page_size": pageSize})
 }
 
 func (s *Server) alertRules(w http.ResponseWriter, r *http.Request) {

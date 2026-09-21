@@ -346,6 +346,21 @@ func (e *Engine) Events() []Event {
 	return append([]Event(nil), e.events...)
 }
 
+// EventsFor returns the complete transition history for one alert. The API
+// uses this rather than slicing the global event feed so alert details remain
+// correct even when the workspace has more than one page of events.
+func (e *Engine) EventsFor(alertID string) []Event {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	items := make([]Event, 0)
+	for _, event := range e.events {
+		if event.AlertID == alertID {
+			items = append(items, event)
+		}
+	}
+	return items
+}
+
 func (e *Engine) Transition(id, state, actor, note string) (Alert, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
