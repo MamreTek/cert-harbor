@@ -181,6 +181,8 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 		return nil, "", err
 	}
 	var lastErr error
+	lastRequestID := ""
+	lastStatus := 0
 	for attempt := 1; attempt <= 3; attempt++ {
 		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
 		if requestErr != nil {
@@ -197,9 +199,11 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 		} else {
 			responseBody, readErr := io.ReadAll(response.Body)
 			requestID := response.Header.Get("X-TC-RequestId")
+			lastRequestID = requestID
+			lastStatus = response.StatusCode
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, requestID, readErr
+				return nil, requestID, providers.NewAPIError(providers.Tencent, requestID, response.StatusCode, true, "response could not be read")
 			}
 			if response.StatusCode >= 200 && response.StatusCode < 300 {
 				var envelope struct {
@@ -216,14 +220,14 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 						requestID = envelope.Response.RequestID
 					}
 					if envelope.Response.Error != nil {
-						return nil, requestID, errors.New("Tencent API rejected the request")
+						return nil, requestID, providers.NewAPIError(providers.Tencent, requestID, http.StatusBadRequest, false, "API rejected the request")
 					}
 				}
 				return responseBody, requestID, nil
 			}
 			lastErr = fmt.Errorf("Tencent %s API returned HTTP %d", service, response.StatusCode)
 			if response.StatusCode != http.StatusTooManyRequests && response.StatusCode < 500 {
-				return nil, requestID, lastErr
+				return nil, requestID, providers.NewAPIError(providers.Tencent, requestID, response.StatusCode, false, "API returned an error")
 			}
 		}
 		if attempt < 3 {
@@ -236,7 +240,10 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 			}
 		}
 	}
-	return nil, "", lastErr
+	if lastErr == nil {
+		lastErr = errors.New("request failed")
+	}
+	return nil, lastRequestID, providers.NewAPIError(providers.Tencent, lastRequestID, lastStatus, true, "request failed after bounded retries")
 }
 
 func signTC3(request *http.Request, body []byte, secretID, secretKey, region, service, action string, timestamp int64) {

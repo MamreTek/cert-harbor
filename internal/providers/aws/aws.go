@@ -186,6 +186,8 @@ func (a *LiveAdapter) awsRequest(ctx context.Context, credentials providers.Cred
 		return nil, "", errors.New("AWS access_key_id and secret_access_key are required")
 	}
 	var lastErr error
+	lastRequestID := ""
+	lastStatus := 0
 	for attempt := 1; attempt <= 3; attempt++ {
 		request, err := http.NewRequestWithContext(ctx, method, endpoint, strings.NewReader(string(body)))
 		if err != nil {
@@ -206,16 +208,18 @@ func (a *LiveAdapter) awsRequest(ctx context.Context, credentials providers.Cred
 		} else {
 			responseBody, readErr := io.ReadAll(response.Body)
 			requestID := response.Header.Get("x-amzn-requestid")
+			lastRequestID = requestID
+			lastStatus = response.StatusCode
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, requestID, fmt.Errorf("read AWS response: %w", readErr)
+				return nil, requestID, providers.NewAPIError(providers.AWS, requestID, response.StatusCode, true, "response could not be read")
 			}
 			if response.StatusCode >= 200 && response.StatusCode < 300 {
 				return responseBody, requestID, nil
 			}
 			lastErr = fmt.Errorf("AWS %s API returned HTTP %d", service, response.StatusCode)
 			if response.StatusCode != http.StatusTooManyRequests && response.StatusCode < 500 {
-				return nil, requestID, lastErr
+				return nil, requestID, providers.NewAPIError(providers.AWS, requestID, response.StatusCode, false, "API returned an error")
 			}
 		}
 		if attempt < 3 {
@@ -228,7 +232,10 @@ func (a *LiveAdapter) awsRequest(ctx context.Context, credentials providers.Cred
 			}
 		}
 	}
-	return nil, "", lastErr
+	if lastErr == nil {
+		lastErr = errors.New("request failed")
+	}
+	return nil, lastRequestID, providers.NewAPIError(providers.AWS, lastRequestID, lastStatus, true, "request failed after bounded retries")
 }
 
 func signAWSRequest(request *http.Request, body []byte, accessKey, secretKey, sessionToken, service, region string, now time.Time) {

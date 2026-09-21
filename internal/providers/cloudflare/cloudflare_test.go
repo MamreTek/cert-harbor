@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -59,5 +60,23 @@ func TestLiveAdapterRetriesRateLimits(t *testing.T) {
 	result, err := adapter.Test(context.Background(), providers.Credentials{Values: map[string]string{"token": "live-token"}})
 	if err != nil || result.RequestID != "retry-ray" || calls != 2 {
 		t.Fatalf("retry test result=%#v err=%v calls=%d", result, err, calls)
+	}
+}
+
+func TestLiveAdapterClassifiesPermanentFailures(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("CF-Ray", "permanent-ray")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	adapter := newLiveAdapter(server.URL, server.Client())
+	_, err := adapter.Test(context.Background(), providers.Credentials{Values: map[string]string{"token": "live-token"}})
+	if err == nil || providers.IsRetryable(err) || providers.RequestID(err) != "permanent-ray" {
+		t.Fatalf("permanent failure = %v, retryable=%v, request_id=%q", err, providers.IsRetryable(err), providers.RequestID(err))
+	}
+	var apiErr *providers.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("error classification = %#v", err)
 	}
 }

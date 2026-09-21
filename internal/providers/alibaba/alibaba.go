@@ -169,6 +169,8 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 		query.Set(key, value)
 	}
 	var lastErr error
+	lastRequestID := ""
+	lastStatus := 0
 	for attempt := 1; attempt <= 3; attempt++ {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+query.Encode(), nil)
 		if err != nil {
@@ -180,19 +182,21 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 		} else {
 			body, readErr := io.ReadAll(response.Body)
 			requestID := response.Header.Get("x-acs-request-id")
+			lastRequestID = requestID
+			lastStatus = response.StatusCode
 			_ = response.Body.Close()
 			if readErr != nil {
-				return nil, requestID, readErr
+				return nil, requestID, providers.NewAPIError(providers.AlibabaCloud, requestID, response.StatusCode, true, "response could not be read")
 			}
 			if response.StatusCode >= 200 && response.StatusCode < 300 {
 				if code, ok := apiError(body); ok {
-					return nil, requestID, errors.New("Alibaba API rejected the request: " + code)
+					return nil, requestID, providers.NewAPIError(providers.AlibabaCloud, requestID, http.StatusBadRequest, false, "API rejected the request: "+code)
 				}
 				return body, requestID, nil
 			}
 			lastErr = fmt.Errorf("Alibaba %s API returned HTTP %d", service, response.StatusCode)
 			if response.StatusCode != http.StatusTooManyRequests && response.StatusCode < 500 {
-				return nil, requestID, lastErr
+				return nil, requestID, providers.NewAPIError(providers.AlibabaCloud, requestID, response.StatusCode, false, "API returned an error")
 			}
 		}
 		if attempt < 3 {
@@ -205,7 +209,10 @@ func (a *LiveAdapter) call(ctx context.Context, credentials providers.Credential
 			}
 		}
 	}
-	return nil, "", lastErr
+	if lastErr == nil {
+		lastErr = errors.New("request failed")
+	}
+	return nil, lastRequestID, providers.NewAPIError(providers.AlibabaCloud, lastRequestID, lastStatus, true, "request failed after bounded retries")
 }
 
 func signature(method string, params map[string]string, secret string) string {

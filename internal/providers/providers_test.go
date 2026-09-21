@@ -3,6 +3,8 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,5 +56,16 @@ func TestFixtureAdapterPaginatesMultiplePages(t *testing.T) {
 	second, err := adapter.ListDomains(context.Background(), Credentials{}, first.NextCursor)
 	if err != nil || len(second.Items) != 1 || second.NextCursor != "" || second.Items[0].SourceID != domains[100].SourceID {
 		t.Fatalf("second fixture page = %#v err=%v", second, err)
+	}
+}
+
+func TestAPIErrorHelpersPreserveSafeClassification(t *testing.T) {
+	err := fmt.Errorf("sync failed: %w", NewAPIError(Cloudflare, "ray-123", 429, true, "API returned an error"))
+	if !IsRetryable(err) || RequestID(err) != "ray-123" {
+		t.Fatalf("helpers returned retryable=%v request_id=%q", IsRetryable(err), RequestID(err))
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Provider != Cloudflare || apiErr.StatusCode != 429 {
+		t.Fatalf("wrapped API error = %#v", err)
 	}
 }

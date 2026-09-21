@@ -33,6 +33,46 @@ type Credentials struct {
 	Values map[string]string
 }
 
+// APIError is a safe provider failure classification. It carries the
+// provider request ID without retaining response bodies or credentials.
+type APIError struct {
+	Provider   Provider
+	RequestID  string
+	StatusCode int
+	Retryable  bool
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	requestID := e.RequestID
+	if requestID == "" {
+		requestID = "unknown"
+	}
+	if e.StatusCode > 0 {
+		return fmt.Sprintf("%s provider request failed (status=%d, request_id=%s): %s", e.Provider, e.StatusCode, requestID, e.Message)
+	}
+	return fmt.Sprintf("%s provider request failed (request_id=%s): %s", e.Provider, requestID, e.Message)
+}
+
+func (e *APIError) Unwrap() error { return nil }
+
+func IsRetryable(err error) bool {
+	var providerErr *APIError
+	return errors.As(err, &providerErr) && providerErr.Retryable
+}
+
+func RequestID(err error) string {
+	var providerErr *APIError
+	if errors.As(err, &providerErr) {
+		return providerErr.RequestID
+	}
+	return ""
+}
+
+func NewAPIError(provider Provider, requestID string, statusCode int, retryable bool, message string) error {
+	return &APIError{Provider: provider, RequestID: requestID, StatusCode: statusCode, Retryable: retryable, Message: message}
+}
+
 type Capabilities struct {
 	Provider             Provider `json:"provider"`
 	Domains              bool     `json:"domains"`

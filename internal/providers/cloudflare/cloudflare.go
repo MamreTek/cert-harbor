@@ -182,7 +182,7 @@ func (a *LiveAdapter) get(ctx context.Context, credentials providers.Credentials
 		response, requestErr := a.client.Do(request)
 		if requestErr != nil {
 			if attempt == 3 {
-				return nil, requestID, fmt.Errorf("Cloudflare request failed: %w", requestErr)
+				return nil, requestID, providers.NewAPIError(providers.Cloudflare, requestID, 0, true, "request failed")
 			}
 			if err := retryWait(ctx, attempt); err != nil {
 				return nil, requestID, err
@@ -199,7 +199,8 @@ func (a *LiveAdapter) get(ctx context.Context, credentials providers.Credentials
 			break
 		}
 		if (response.StatusCode != http.StatusTooManyRequests && response.StatusCode < 500) || attempt == 3 {
-			return nil, requestID, fmt.Errorf("Cloudflare API returned HTTP %d", response.StatusCode)
+			retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
+			return nil, requestID, providers.NewAPIError(providers.Cloudflare, requestID, response.StatusCode, retryable, "API returned an error")
 		}
 		if err := retryWait(ctx, attempt); err != nil {
 			return nil, requestID, err
@@ -215,7 +216,7 @@ func (a *LiveAdapter) get(ctx context.Context, credentials providers.Credentials
 		return nil, requestID, fmt.Errorf("decode Cloudflare response: %w", err)
 	}
 	if !envelope.Success {
-		return nil, requestID, errors.New("Cloudflare API rejected the request")
+		return nil, requestID, providers.NewAPIError(providers.Cloudflare, requestID, http.StatusBadRequest, false, "API rejected the request")
 	}
 	return body, requestID, nil
 }
