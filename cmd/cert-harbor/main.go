@@ -136,7 +136,7 @@ func recordNotificationDeliveries(store *catalog.Store, deliveries []notificatio
 			ObjectType:    "notification_delivery",
 			ObjectID:      delivery.ID,
 			Outcome:       delivery.Status,
-			CorrelationID: "delivery-" + delivery.ID,
+			CorrelationID: delivery.CorrelationID,
 			CreatedAt:     time.Now().UTC(),
 		})
 	}
