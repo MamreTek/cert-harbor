@@ -26,7 +26,7 @@ describe('CertHarbor console', () => {
     const fetcher = async (url, options = {}) => {
       calls.push({ url, options })
       if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }
-      if (url === '/api/v1/alerts') return { ok: true, json: async () => ({ items: [{ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', state: 'open', severity: 'high', provider: 'cloudflare', updated_at: 'now' }] }) }
+      if (url === '/api/v1/alerts') return { ok: true, json: async () => ({ items: [{ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', state: 'open', severity: 'high', provider: 'cloudflare', source_url: 'https://provider.example/certificate/1', updated_at: 'now' }] }) }
       return { ok: true, json: async () => ({ items: [] }) }
     }
     render(<App fetcher={fetcher} />)
@@ -36,8 +36,27 @@ describe('CertHarbor console', () => {
     await waitFor(() => expect(calls.some(({ options }) => options.headers?.['X-CertHarbor-Token'] === 'viewer-secret')).toBe(true))
     fireEvent.click(screen.getByText('Alert center'))
     await waitFor(() => expect(screen.getByText('Acknowledge')).toBeInTheDocument())
+    expect(screen.getByRole('link', { name: 'Provider' })).toHaveAttribute('href', 'https://provider.example/certificate/1')
     fireEvent.click(screen.getByText('Acknowledge'))
     await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/alerts/alert-1/acknowledge' && options.method === 'POST')).toBe(true))
+  })
+
+  it('tests a provider connection from settings', async () => {
+    const calls = []
+    const fetcher = async (url, options = {}) => {
+      calls.push({ url, options })
+      if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 1, stale_assets: 0 }) }
+      if (url === '/api/v1/provider-connections?page=1&page_size=50') return { ok: true, json: async () => ({ items: [{ id: 'connection-1', name: 'Cloudflare', provider: 'cloudflare', status: 'healthy', enabled: true }] }) }
+      if (url === '/api/v1/provider-connections/connection-1/test') return { ok: true, json: async () => ({ request_id: 'ray-1' }) }
+      return { ok: true, json: async () => ({ items: [] }) }
+    }
+    render(<App fetcher={fetcher} />)
+    await waitFor(() => expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Settings'))
+    await waitFor(() => expect(screen.getByText('Cloudflare')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Test'))
+    await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/provider-connections/connection-1/test' && options.method === 'POST')).toBe(true))
+    expect(await screen.findByText(/Connection test passed/)).toBeInTheDocument()
   })
 
   it('opens inventory details from the domain table', async () => {

@@ -45,6 +45,7 @@ export function App({ fetcher = defaultFetcher }) {
   const [loading, setLoading] = useState(Boolean(fetcher))
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', owner: '', environment: '', tag: '', expiry_state: '', stale: '', sort: '', order: '' })
   const [modalKind, setModalKind] = useState('')
   const [modalValues, setModalValues] = useState({})
@@ -68,6 +69,7 @@ export function App({ fetcher = defaultFetcher }) {
     if (!fetcher) return
     setLoading(true)
     setError('')
+    setNotice('')
     try {
       const responses = await Promise.all([
         requester('/api/v1/catalog/summary'),
@@ -109,6 +111,7 @@ export function App({ fetcher = defaultFetcher }) {
     if (!fetcher || !connection) return
     setSyncing(true)
     setError('')
+    setNotice('')
     try {
       const response = await requester(`/api/v1/provider-connections/${connection.id}/sync`, { method: 'POST' })
       if (!response.ok) throw new Error('The provider sync failed.')
@@ -117,6 +120,32 @@ export function App({ fetcher = defaultFetcher }) {
       setError(syncError.message || 'Unable to synchronize the provider.')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const testConnection = async (item) => {
+    setError('')
+    setNotice('')
+    try {
+      const response = await requester(`/api/v1/provider-connections/${item.id}/test`, { method: 'POST' })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'The provider connection test failed.')
+      setNotice(`Connection test passed${body.request_id ? ` (request ID: ${body.request_id})` : ''}.`)
+    } catch (testError) {
+      setError(testError.message || 'The provider connection test failed.')
+    }
+  }
+
+  const testNotificationChannel = async (item) => {
+    setError('')
+    setNotice('')
+    try {
+      const response = await requester(`/api/v1/notification-channels/${item.id}/test`, { method: 'POST' })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || 'The notification channel test failed.')
+      setNotice(`Notification channel test passed${body.id ? ` (delivery: ${body.id})` : ''}.`)
+    } catch (testError) {
+      setError(testError.message || 'The notification channel test failed.')
     }
   }
 
@@ -287,6 +316,7 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Days remaining', dataIndex: 'days_remaining', key: 'days_remaining', render: (value) => value ?? '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Updated', dataIndex: 'updated_at', key: 'updated_at' },
+      { title: 'Source', render: (_, item) => item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">Provider</a> : 'Unavailable' },
       { title: 'Actions', render: (_, item) => <Space>
         {item.state === 'open' && <Button size="small" onClick={() => alertAction(item.id, 'acknowledge')}>Acknowledge</Button>}
         {item.state !== 'resolved' && <Button size="small" onClick={() => alertAction(item.id, 'resolve')}>Resolve</Button>}
@@ -298,9 +328,9 @@ export function App({ fetcher = defaultFetcher }) {
 
   const renderSettings = () => <>
     <Row gutter={[16, 16]}>
-      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => openModal('connection', item)}>Edit</Button><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Provider connections" extra={<Button size="small" onClick={() => openModal('connection')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={connections} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Schedule', dataIndex: 'sync_interval' }, { title: 'Next sync', dataIndex: 'next_sync_at', render: (value, item) => value || item.last_sync_error || 'Waiting for scheduler' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => testConnection(item)}>Test</Button><Button size="small" onClick={() => openModal('connection', item)}>Edit</Button><Button size="small" onClick={() => toggleConnection(item)}>{item.enabled ? 'Disable' : 'Enable'}</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/provider-connections/${item.id}`, 'Delete this provider connection?')}>Delete</Button></Space> }]} /></Card></Col>
       <Col xs={24} lg={8}><Card title="Members" extra={<Button size="small" onClick={() => openModal('member')}>Invite</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={members} columns={[{ title: 'Email', dataIndex: 'email' }, { title: 'Role', dataIndex: 'role' }, { title: 'Status', dataIndex: 'status' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => openModal('member', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/members/${item.id}`, 'Remove this member?')}>Remove</Button></Space> }]} /></Card></Col>
-      <Col xs={24} lg={8}><Card title="Notification channels" extra={<Button size="small" onClick={() => openModal('channel')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => openModal('channel', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/notification-channels/${item.id}`, 'Delete this notification channel?')}>Delete</Button></Space> }]} /></Card></Col>
+      <Col xs={24} lg={8}><Card title="Notification channels" extra={<Button size="small" onClick={() => openModal('channel')}>Add</Button>}><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }, { title: 'Actions', render: (_, item) => <Space><Button size="small" onClick={() => testNotificationChannel(item)}>Test</Button><Button size="small" onClick={() => openModal('channel', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/notification-channels/${item.id}`, 'Delete this notification channel?')}>Delete</Button></Space> }]} /></Card></Col>
     </Row>
     <Card title="Alert rules" extra={<Button size="small" onClick={() => openModal('rule')}>Add</Button>} className="inventory-card"><Table rowKey="id" pagination={false} dataSource={rules} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Domain thresholds', dataIndex: 'domain_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Certificate thresholds', dataIndex: 'certificate_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Stale after (hours)', dataIndex: 'stale_after_hours' }, { title: 'Actions', render: (_, item) => item.id === 'default' ? 'Protected' : <Space><Button size="small" onClick={() => openModal('rule', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/alert-rules/${item.id}`, 'Delete this alert rule?')}>Delete</Button></Space> }]} /></Card>
     <Row gutter={[16, 16]} className="inventory-card">
@@ -346,6 +376,7 @@ export function App({ fetcher = defaultFetcher }) {
             </Typography.Paragraph>
           </div>
           {error && <Alert type="error" showIcon message={error} className="page-alert" />}
+          {notice && <Alert type="success" showIcon message={notice} className="page-alert" />}
           {loading && rows.length === 0 ? <div className="loading-state"><Spin /></div> : <>
             {pageContent}
           </>}
