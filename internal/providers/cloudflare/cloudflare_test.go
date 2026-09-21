@@ -21,7 +21,7 @@ func TestLiveAdapterMapsZonesAndCertificatePacks(t *testing.T) {
 		case "/zones":
 			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"zone-1","name":"example.com","status":"active","name_servers":["ns1.example.net"],"original_name_servers":["ns2.example.net"]}],"result_info":{"page":1,"total_pages":1}}`))
 		case "/zones/zone-1/ssl/certificate_packs":
-			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"pack-1","hosts":["example.com","www.example.com"],"status":"active","certificate_authority":"Lets Encrypt","issued_on":"2026-01-01T00:00:00Z","expires_on":"2026-10-01T00:00:00Z"}],"result_info":{"page":1,"total_pages":1}}`))
+			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"pack-1","hosts":["example.com","www.example.com"],"type":"universal","status":"active","certificate_authority":"Lets Encrypt","issued_on":"2026-01-01T00:00:00Z","expires_on":"2026-10-01T00:00:00Z"}],"result_info":{"page":1,"total_pages":1}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -39,7 +39,7 @@ func TestLiveAdapterMapsZonesAndCertificatePacks(t *testing.T) {
 		t.Fatalf("domains = %#v, err = %v", domains, err)
 	}
 	certificates, err := adapter.ListCertificates(context.Background(), credentials, "")
-	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].SourceID != "pack-1" || certificates.Items[0].CommonName != "example.com" || certificates.Items[0].ValidTo.IsZero() {
+	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].SourceID != "pack-1" || certificates.Items[0].CommonName != "example.com" || certificates.Items[0].CertificateType != "universal" || len(certificates.Items[0].LinkedDomains) != 2 || certificates.Items[0].ValidTo.IsZero() {
 		t.Fatalf("certificates = %#v, err = %v", certificates, err)
 	}
 }

@@ -133,16 +133,17 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 		Response struct {
 			TotalCount   int `json:"TotalCount"`
 			Certificates []struct {
-				CertificateID  string   `json:"CertificateId"`
-				CertID         string   `json:"CertId"`
-				Domain         string   `json:"Domain"`
-				SubjectAltName []string `json:"SubjectAltName"`
-				Issuer         string   `json:"Issuer"`
-				CertBeginTime  string   `json:"CertBeginTime"`
-				CertEndTime    string   `json:"CertEndTime"`
-				SerialNumber   string   `json:"SerialNumber"`
-				Fingerprint    string   `json:"Fingerprint"`
-				Status         string   `json:"Status"`
+				CertificateID   string   `json:"CertificateId"`
+				CertID          string   `json:"CertId"`
+				Domain          string   `json:"Domain"`
+				SubjectAltName  []string `json:"SubjectAltName"`
+				Issuer          string   `json:"Issuer"`
+				CertBeginTime   string   `json:"CertBeginTime"`
+				CertEndTime     string   `json:"CertEndTime"`
+				SerialNumber    string   `json:"SerialNumber"`
+				Fingerprint     string   `json:"Fingerprint"`
+				Status          string   `json:"Status"`
+				CertificateType string   `json:"CertificateType"`
 			} `json:"Certificates"`
 		} `json:"Response"`
 	}
@@ -157,7 +158,11 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 		}
 		validFrom, _ := parseTencentTime(item.CertBeginTime)
 		validTo, _ := parseTencentTime(item.CertEndTime)
-		items = append(items, domain.Certificate{SourceID: id, CommonName: item.Domain, SANs: item.SubjectAltName, Issuer: item.Issuer, Status: item.Status, SerialNumber: item.SerialNumber, Fingerprint: item.Fingerprint, ValidFrom: validFrom, ValidTo: validTo, SourceURL: "https://console.cloud.tencent.com/ssl"})
+		linkedDomains := item.SubjectAltName
+		if len(linkedDomains) == 0 && item.Domain != "" {
+			linkedDomains = []string{item.Domain}
+		}
+		items = append(items, domain.Certificate{SourceID: id, CommonName: item.Domain, SANs: item.SubjectAltName, Issuer: item.Issuer, Status: item.Status, SerialNumber: item.SerialNumber, Fingerprint: item.Fingerprint, CertificateType: item.CertificateType, LinkedDomains: linkedDomains, ValidFrom: validFrom, ValidTo: validTo, SourceURL: "https://console.cloud.tencent.com/ssl"})
 	}
 	next := ""
 	if offset+len(items) < payload.Response.TotalCount && len(items) > 0 {

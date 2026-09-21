@@ -127,6 +127,7 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 			Serial                  string   `json:"Serial"`
 			FingerPrint             string   `json:"FingerPrint"`
 			Status                  string   `json:"Status"`
+			CertificateType         string   `json:"CertType"`
 			NotBefore               int64    `json:"NotBefore"`
 			NotAfter                int64    `json:"NotAfter"`
 		} `json:"CertificateList"`
@@ -140,7 +141,11 @@ func (a *LiveAdapter) ListCertificates(ctx context.Context, credentials provider
 		if id == "" {
 			id = item.CertIdentifier
 		}
-		items = append(items, domain.Certificate{SourceID: id, CommonName: item.CommonName, SANs: item.SubjectAlternativeNames, Issuer: item.Issuer, Status: item.Status, SerialNumber: item.Serial, Fingerprint: item.FingerPrint, ValidFrom: milliseconds(item.NotBefore), ValidTo: milliseconds(item.NotAfter), SourceURL: "https://yundun.console.aliyun.com/?p=cas#/certDetail/" + id})
+		linkedDomains := item.SubjectAlternativeNames
+		if len(linkedDomains) == 0 && item.CommonName != "" {
+			linkedDomains = []string{item.CommonName}
+		}
+		items = append(items, domain.Certificate{SourceID: id, CommonName: item.CommonName, SANs: item.SubjectAlternativeNames, Issuer: item.Issuer, Status: item.Status, SerialNumber: item.Serial, Fingerprint: item.FingerPrint, CertificateType: item.CertificateType, LinkedDomains: linkedDomains, ValidFrom: milliseconds(item.NotBefore), ValidTo: milliseconds(item.NotAfter), SourceURL: "https://yundun.console.aliyun.com/?p=cas#/certDetail/" + id})
 	}
 	pageSize := payload.ShowSize
 	if pageSize == 0 {

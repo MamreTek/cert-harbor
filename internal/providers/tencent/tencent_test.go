@@ -21,7 +21,7 @@ func TestLiveAdapterMapsDNSPodAndSSLCertificates(t *testing.T) {
 		case "DescribeDomainList":
 			_, _ = w.Write([]byte(`{"Response":{"DomainCountInfo":{"DomainTotal":1},"DomainList":[{"DomainId":123,"Name":"example.com","Status":"ENABLE","EffectiveDNS":["ns1.example.net"]}],"RequestId":"dns-request"}}`))
 		case "DescribeCertificates":
-			_, _ = w.Write([]byte(`{"Response":{"TotalCount":1,"Certificates":[{"CertificateId":"cert-1","Domain":"example.com","SubjectAltName":["example.com","www.example.com"],"Issuer":"Example CA","CertBeginTime":"2026-01-01 00:00:00","CertEndTime":"2026-10-01 00:00:00"}],"RequestId":"ssl-request"}}`))
+			_, _ = w.Write([]byte(`{"Response":{"TotalCount":1,"Certificates":[{"CertificateId":"cert-1","Domain":"example.com","SubjectAltName":["example.com","www.example.com"],"CertificateType":"DV","Issuer":"Example CA","CertBeginTime":"2026-01-01 00:00:00","CertEndTime":"2026-10-01 00:00:00"}],"RequestId":"ssl-request"}}`))
 		default:
 			http.Error(w, "unknown action", http.StatusBadRequest)
 		}
@@ -38,7 +38,7 @@ func TestLiveAdapterMapsDNSPodAndSSLCertificates(t *testing.T) {
 		t.Fatalf("domains = %#v, err = %v", domains, err)
 	}
 	certificates, err := adapter.ListCertificates(context.Background(), credentials, "")
-	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].SourceID != "cert-1" || certificates.Items[0].Issuer != "Example CA" || certificates.Items[0].ValidTo.IsZero() {
+	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].SourceID != "cert-1" || certificates.Items[0].Issuer != "Example CA" || certificates.Items[0].CertificateType != "DV" || len(certificates.Items[0].LinkedDomains) != 2 || certificates.Items[0].ValidTo.IsZero() {
 		t.Fatalf("certificates = %#v, err = %v", certificates, err)
 	}
 }

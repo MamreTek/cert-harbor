@@ -26,7 +26,7 @@ func TestLiveAdapterMapsRoute53AndACM(t *testing.T) {
 		case "CertificateManager.ListCertificates":
 			_, _ = w.Write([]byte(`{"CertificateSummaryList":[{"CertificateArn":"arn:aws:acm:us-east-1:123:certificate/abc","DomainName":"example.com"}],"NextToken":""}`))
 		case "CertificateManager.DescribeCertificate":
-			_, _ = w.Write([]byte(`{"Certificate":{"DomainName":"example.com","SubjectAlternativeNames":["example.com","www.example.com"],"Issuer":"Example CA","Serial":"123","NotBefore":"2026-01-01T00:00:00Z","NotAfter":"2026-10-01T00:00:00Z"}}`))
+			_, _ = w.Write([]byte(`{"Certificate":{"DomainName":"example.com","SubjectAlternativeNames":["example.com","www.example.com"],"Type":"AMAZON_ISSUED","Issuer":"Example CA","Serial":"123","NotBefore":"2026-01-01T00:00:00Z","NotAfter":"2026-10-01T00:00:00Z"}}`))
 		default:
 			http.Error(w, "unknown target", http.StatusBadRequest)
 		}
@@ -43,7 +43,7 @@ func TestLiveAdapterMapsRoute53AndACM(t *testing.T) {
 		t.Fatalf("domains = %#v, err = %v", domains, err)
 	}
 	certificates, err := adapter.ListCertificates(context.Background(), credentials, "")
-	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].Region != "us-east-1" || certificates.Items[0].Issuer != "Example CA" || certificates.Items[0].ValidTo.IsZero() {
+	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].Region != "us-east-1" || certificates.Items[0].Issuer != "Example CA" || certificates.Items[0].CertificateType != "AMAZON_ISSUED" || len(certificates.Items[0].LinkedDomains) != 2 || certificates.Items[0].ValidTo.IsZero() {
 		t.Fatalf("certificates = %#v, err = %v", certificates, err)
 	}
 }

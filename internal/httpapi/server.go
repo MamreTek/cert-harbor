@@ -517,13 +517,13 @@ func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
 	items := s.store.ListDomainsForExport(filter)
-	rows := [][]string{{"id", "provider", "source_id", "name", "registrable_domain", "zone", "registrar", "status", "nameservers", "owner", "environment", "tags", "expiry_state", "expires_at", "last_seen_at", "stale", "source_url"}}
+	rows := [][]string{{"id", "provider", "source_id", "name", "registrable_domain", "zone", "registrar", "status", "nameservers", "owner", "environment", "tags", "notes", "expiry_state", "expires_at", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		expiresAt := ""
 		if item.ExpiresAt != nil {
 			expiresAt = item.ExpiresAt.UTC().Format(time.RFC3339)
 		}
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.Name, item.RegistrableDomain, item.Zone, item.Registrar, item.Status, strings.Join(item.Nameservers, ";"), item.Owner, item.Environment, strings.Join(item.Tags, ";"), catalog.DeriveExpiryState(item.ExpiresAt, item.Stale), expiresAt, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.Name, item.RegistrableDomain, item.Zone, item.Registrar, item.Status, strings.Join(item.Nameservers, ";"), item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveExpiryState(item.ExpiresAt, item.Stale), expiresAt, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "domains.csv", rows)
 }
@@ -531,9 +531,9 @@ func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 func (s *Server) exportCertificates(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
 	items := s.store.ListCertificatesForExport(filter)
-	rows := [][]string{{"id", "provider", "source_id", "common_name", "sans", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "expiry_state", "last_seen_at", "stale", "source_url"}}
+	rows := [][]string{{"id", "provider", "source_id", "common_name", "sans", "linked_domains", "certificate_type", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "notes", "expiry_state", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), catalog.DeriveExpiryState(&item.ValidTo, item.Stale), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), strings.Join(item.LinkedDomains, ";"), item.CertificateType, item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveExpiryState(&item.ValidTo, item.Stale), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "certificates.csv", rows)
 }

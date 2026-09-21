@@ -21,7 +21,7 @@ func TestLiveAdapterMapsAliDNSAndCertificates(t *testing.T) {
 		case "DescribeDomains":
 			_, _ = w.Write([]byte(`{"RequestId":"dns-request","TotalCount":1,"PageNumber":1,"PageSize":100,"Domains":{"Domain":[{"DomainId":"domain-1","DomainName":"example.com","DomainStatus":"Enable","NameServer":["ns1.example.net"]}]}}`))
 		case "ListCert":
-			_, _ = w.Write([]byte(`{"RequestId":"cert-request","TotalCount":1,"ShowSize":100,"CertificateList":[{"CertificateId":"cert-1","CommonName":"example.com","SubjectAlternativeNames":["example.com","www.example.com"],"Issuer":"Example CA","Serial":"123","FingerPrint":"fingerprint","NotBefore":1767225600000,"NotAfter":1790812800000}]}`))
+			_, _ = w.Write([]byte(`{"RequestId":"cert-request","TotalCount":1,"ShowSize":100,"CertificateList":[{"CertificateId":"cert-1","CommonName":"example.com","SubjectAlternativeNames":["example.com","www.example.com"],"CertType":"DV","Issuer":"Example CA","Serial":"123","FingerPrint":"fingerprint","NotBefore":1767225600000,"NotAfter":1790812800000}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -38,7 +38,7 @@ func TestLiveAdapterMapsAliDNSAndCertificates(t *testing.T) {
 		t.Fatalf("domains = %#v, err = %v", domains, err)
 	}
 	certificates, err := adapter.ListCertificates(context.Background(), credentials, "")
-	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].SourceID != "cert-1" || certificates.Items[0].Issuer != "Example CA" || certificates.Items[0].Fingerprint != "fingerprint" || certificates.Items[0].ValidTo.IsZero() {
+	if err != nil || len(certificates.Items) != 1 || certificates.Items[0].SourceID != "cert-1" || certificates.Items[0].Issuer != "Example CA" || certificates.Items[0].Fingerprint != "fingerprint" || certificates.Items[0].CertificateType != "DV" || len(certificates.Items[0].LinkedDomains) != 2 || certificates.Items[0].ValidTo.IsZero() {
 		t.Fatalf("certificates = %#v, err = %v", certificates, err)
 	}
 	if strings.Contains(certificates.Items[0].SourceURL, "access-secret") {

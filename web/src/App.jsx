@@ -431,11 +431,14 @@ export function App({ fetcher = defaultFetcher }) {
           <Descriptions.Item label="Owner / team">{detailItem.owner || 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Environment">{detailItem.environment || 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Tags">{(detailItem.tags || []).join(', ') || 'None'}</Descriptions.Item>
+          <Descriptions.Item label="Notes">{detailItem.notes || 'None'}</Descriptions.Item>
           <Descriptions.Item label="Status">{detailItem.status || 'Unknown'}</Descriptions.Item>
           <Descriptions.Item label="Expiry state">{detailItem.expiry_state || 'Unknown'}</Descriptions.Item>
           {detailKind === 'Certificate' && <>
             <Descriptions.Item label="Issuer">{detailItem.issuer || 'Unknown'}</Descriptions.Item>
             <Descriptions.Item label="SANs">{(detailItem.sans || []).join(', ') || 'None'}</Descriptions.Item>
+            <Descriptions.Item label="Linked domains">{(detailItem.linked_domains || []).join(', ') || 'Unknown'}</Descriptions.Item>
+            <Descriptions.Item label="Certificate type">{detailItem.certificate_type || 'Unknown'}</Descriptions.Item>
             <Descriptions.Item label="Valid from">{detailItem.valid_from || 'Unknown'}</Descriptions.Item>
             <Descriptions.Item label="Valid to">{detailItem.valid_to || 'Unknown'}</Descriptions.Item>
             <Descriptions.Item label="Region">{detailItem.region || 'Unknown'}</Descriptions.Item>
