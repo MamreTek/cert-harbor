@@ -39,6 +39,8 @@ export function App({ fetcher = defaultFetcher }) {
   const [rules, setRules] = useState([])
   const [members, setMembers] = useState([])
   const [channels, setChannels] = useState([])
+  const [syncRuns, setSyncRuns] = useState([])
+  const [auditEvents, setAuditEvents] = useState([])
   const [activePage, setActivePage] = useState('overview')
   const [loading, setLoading] = useState(Boolean(fetcher))
   const [syncing, setSyncing] = useState(false)
@@ -61,9 +63,11 @@ export function App({ fetcher = defaultFetcher }) {
         fetcher('/api/v1/alert-rules'),
         fetcher('/api/v1/members'),
         fetcher('/api/v1/notification-channels'),
+        fetcher('/api/v1/sync-runs'),
+        fetcher('/api/v1/audit-events?page=1&page_size=50'),
       ])
       if (responses.some((response) => !response.ok)) throw new Error('The inventory API returned an error.')
-      const [nextSummary, nextConnections, nextDomains, nextCertificates, nextAlerts, nextRules, nextMembers, nextChannels] = await Promise.all(responses.map((response) => response.json()))
+      const [nextSummary, nextConnections, nextDomains, nextCertificates, nextAlerts, nextRules, nextMembers, nextChannels, nextSyncRuns, nextAuditEvents] = await Promise.all(responses.map((response) => response.json()))
       setSummary({ ...emptySummary, ...nextSummary })
       setConnections(nextConnections.items ?? [])
       setDomains(nextDomains.items ?? [])
@@ -72,6 +76,8 @@ export function App({ fetcher = defaultFetcher }) {
       setRules(nextRules.items ?? [])
       setMembers(nextMembers.items ?? [])
       setChannels(nextChannels.items ?? [])
+      setSyncRuns(nextSyncRuns.items ?? [])
+      setAuditEvents(nextAuditEvents.items ?? [])
     } catch (loadError) {
       setError(loadError.message || 'Unable to load inventory.')
     } finally {
@@ -172,6 +178,10 @@ export function App({ fetcher = defaultFetcher }) {
       <Col xs={24} lg={8}><Card title="Notification channels"><Table rowKey="id" size="small" pagination={false} dataSource={channels} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Kind', dataIndex: 'kind' }, { title: 'Enabled', dataIndex: 'enabled', render: (value) => value ? 'Yes' : 'No' }]} /></Card></Col>
     </Row>
     <Card title="Alert rules" className="inventory-card"><Table rowKey="id" pagination={false} dataSource={rules} columns={[{ title: 'Name', dataIndex: 'name' }, { title: 'Domain thresholds', dataIndex: 'domain_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Certificate thresholds', dataIndex: 'certificate_thresholds', render: (value) => (value ?? []).join(', ') }, { title: 'Stale after (hours)', dataIndex: 'stale_after_hours' }]} /></Card>
+    <Row gutter={[16, 16]} className="inventory-card">
+      <Col xs={24} lg={12}><Card title="Sync history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={syncRuns} columns={[{ title: 'Provider', dataIndex: 'provider' }, { title: 'Status', dataIndex: 'status' }, { title: 'Started', dataIndex: 'started_at' }, { title: 'Error', dataIndex: 'error_summary', render: (value) => value || '—' }]} /></Card></Col>
+      <Col xs={24} lg={12}><Card title="Audit history"><Table rowKey="id" size="small" pagination={{ pageSize: 5 }} dataSource={auditEvents} columns={[{ title: 'Action', dataIndex: 'action' }, { title: 'Object', dataIndex: 'object_type' }, { title: 'Outcome', dataIndex: 'outcome' }, { title: 'Created', dataIndex: 'created_at' }]} /></Card></Col>
+    </Row>
   </>
 
   const pageContent = { overview: renderOverview, domains: renderDomains, certificates: renderCertificates, alerts: renderAlerts, settings: renderSettings }[activePage]()
