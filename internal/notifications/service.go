@@ -76,6 +76,7 @@ type outboxItem struct {
 
 type Service struct {
 	mu         sync.RWMutex
+	deliveryMu sync.Mutex
 	channels   map[string]Channel
 	deliveries []Delivery
 	outbox     []outboxItem
@@ -307,11 +308,19 @@ func (s *Service) Deliveries() []Delivery {
 }
 
 func (s *Service) Test(ctx context.Context, id string) (Delivery, error) {
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
 	alert := alerts.Alert{ID: "test-alert", AssetID: "test-asset", AssetKind: "test", AssetName: "CertHarbor test", Provider: "cert-harbor", State: alerts.StateOpen, Severity: "info", UpdatedAt: s.now()}
 	return s.dispatchChannel(ctx, id, alert)
 }
 
 func (s *Service) Dispatch(ctx context.Context, alert alerts.Alert) []Delivery {
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
+	return s.dispatch(ctx, alert)
+}
+
+func (s *Service) dispatch(ctx context.Context, alert alerts.Alert) []Delivery {
 	channels := s.Channels()
 	items := make([]Delivery, 0, len(channels))
 	for _, channel := range channels {
@@ -340,12 +349,14 @@ func (s *Service) Queue(alert alerts.Alert) error {
 }
 
 func (s *Service) DeliverOutbox(ctx context.Context) []Delivery {
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
 	s.mu.RLock()
 	items := append([]outboxItem(nil), s.outbox...)
 	s.mu.RUnlock()
 	deliveries := make([]Delivery, 0)
 	for _, item := range items {
-		current := s.Dispatch(ctx, item.Alert)
+		current := s.dispatch(ctx, item.Alert)
 		deliveries = append(deliveries, current...)
 		if len(current) == 0 || allDelivered(current) {
 			s.mu.Lock()

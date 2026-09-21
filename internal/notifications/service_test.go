@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,6 +105,66 @@ func TestDispatchDeduplicatesDeliveredAlertState(t *testing.T) {
 	second := service.Dispatch(context.Background(), alert)
 	if len(first) != 1 || len(second) != 1 || first[0].ID != second[0].ID || len(service.Deliveries()) != 1 {
 		t.Fatalf("expected one deduplicated delivery, first=%#v second=%#v history=%#v", first, second, service.Deliveries())
+	}
+}
+
+func TestConcurrentOutboxDrainsDoNotDuplicateDelivery(t *testing.T) {
+	box, err := security.NewSecretBox("notification-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := box.Encrypt([]byte("webhook-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	service := NewService(box)
+	if err := service.AddChannel(Channel{ID: "webhook", Name: "Webhook", Kind: KindWebhook, Endpoint: server.URL, Enabled: true, SigningSecretCiphertext: secret}); err != nil {
+		t.Fatal(err)
+	}
+	alert := alerts.Alert{ID: "queued-alert", State: alerts.StateOpen}
+	if err := service.Queue(alert); err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan struct{})
+	go func() {
+		service.DeliverOutbox(context.Background())
+		close(firstDone)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first delivery did not reach webhook")
+	}
+	secondDone := make(chan struct{})
+	go func() {
+		service.DeliverOutbox(context.Background())
+		close(secondDone)
+	}()
+	select {
+	case <-secondDone:
+		t.Fatal("second outbox drain completed while first delivery was in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-firstDone
+	<-secondDone
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("concurrent drains sent %d webhook requests, want 1", got)
+	}
+	if got := len(service.Deliveries()); got != 1 {
+		t.Fatalf("concurrent drains recorded %d deliveries, want 1", got)
 	}
 }
 
