@@ -101,6 +101,7 @@ describe('CertHarbor console', () => {
       const fetcher = async (url) => {
         if (url === '/api/v1/alerts/alert-1') return { ok: true, json: async () => ({ id: 'alert-1', asset_name: 'example.com', asset_kind: 'certificate', provider: 'cloudflare', state: 'open', severity: 'high', days_remaining: 7, freshness: 'current', source_url: 'https://provider.example/certificate/1' }) }
         if (url === '/api/v1/alerts') return { ok: true, json: async () => ({ items: [] }) }
+        if (url === '/api/v1/notification-deliveries?page=1&page_size=50') return { ok: true, json: async () => ({ items: [{ id: 'delivery-1', alert_id: 'alert-1', correlation_id: 'corr-delivery-1', status: 'delivered', attempts: 1, created_at: 'now' }] }) }
         if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }
         return { ok: true, json: async () => ({ items: [] }) }
       }
@@ -108,6 +109,7 @@ describe('CertHarbor console', () => {
       await waitFor(() => expect(screen.getByText('Alert details')).toBeInTheDocument())
       expect(screen.getByText('example.com')).toBeInTheDocument()
       expect(screen.getByText('Open provider source')).toBeInTheDocument()
+      expect(screen.getByText('delivered (corr-delivery-1)')).toBeInTheDocument()
     } finally {
       window.history.pushState({}, '', originalPath)
     }
