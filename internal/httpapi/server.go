@@ -223,8 +223,10 @@ func (s *Server) workspace(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.Workspace())
 }
 
-func (s *Server) members(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.store.ListMembers()})
+func (s *Server) members(w http.ResponseWriter, r *http.Request) {
+	allItems := s.store.ListMembers()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 type memberRequest struct {
@@ -296,8 +298,10 @@ func (s *Server) summary(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
-func (s *Server) connections(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.store.ListConnections()})
+func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
+	allItems := s.store.ListConnections()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 type connectionRequest struct {
@@ -562,8 +566,10 @@ func (s *Server) alertDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, alert)
 }
 
-func (s *Server) alertRules(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Rules()})
+func (s *Server) alertRules(w http.ResponseWriter, r *http.Request) {
+	allItems := s.alerts.Rules()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 type alertRuleRequest struct {
@@ -723,8 +729,10 @@ type notificationRequest struct {
 	Credentials   map[string]string `json:"credentials"`
 }
 
-func (s *Server) notificationChannels(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.notifications.Channels()})
+func (s *Server) notificationChannels(w http.ResponseWriter, r *http.Request) {
+	allItems := s.notifications.Channels()
+	pageNumber, pageLimit := page(r), pageSize(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
 func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Request) {

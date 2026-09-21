@@ -32,12 +32,19 @@ paths:
       responses: {"200": {description: Workspace metadata}}
   /api/v1/members:
     get:
-      responses: {"200": {description: Workspace members}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated workspace members}}
     post:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/MemberRequest'}}}
       responses: {"201": {description: Member invited}}
   /api/v1/members/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/MemberRequest'}}}
       responses: {"200": {description: Member updated}, "422": {description: Invalid member}}
     delete:
       responses: {"204": {description: Member removed}}
@@ -46,12 +53,19 @@ paths:
       responses: {"200": {description: Inventory summary}}
   /api/v1/provider-connections:
     get:
-      responses: {"200": {description: Provider connections}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated provider connections}}
     post:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ConnectionRequest'}}}
       responses: {"201": {description: Created}, "400": {description: Invalid request}}
   /api/v1/provider-connections/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ConnectionRequest'}}}
       responses: {"200": {description: Updated}, "404": {description: Not found}}
     delete:
       responses: {"204": {description: Deleted}}
@@ -104,14 +118,17 @@ paths:
   /api/v1/alerts/{id}/acknowledge:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AlertActionRequest'}}}}
       responses: {"200": {description: Alert acknowledged}}
   /api/v1/alerts/{id}/resolve:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AlertActionRequest'}}}}
       responses: {"200": {description: Alert resolved}}
   /api/v1/alerts/{id}/suppress:
     post:
       parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AlertActionRequest'}}}}
       responses: {"200": {description: Alert suppressed}}
   /api/v1/alerts/{id}/notify:
     post:
@@ -122,12 +139,19 @@ paths:
       responses: {"200": {description: Evaluation result}}
   /api/v1/alert-rules:
     get:
-      responses: {"200": {description: Alert rules}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated alert rules}}
     post:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRequest'}}}
       responses: {"201": {description: Created}}
   /api/v1/alert-rules/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/AlertRuleRequest'}}}
       responses: {"200": {description: Updated}, "404": {description: Not found}}
     delete:
       responses: {"204": {description: Deleted}}
@@ -137,12 +161,19 @@ paths:
       responses: {"200": {description: Paginated alert state transition history}}
   /api/v1/notification-channels:
     get:
-      responses: {"200": {description: Notification channels}}
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated notification channels}}
     post:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannelRequest'}}}
       responses: {"201": {description: Created}}
   /api/v1/notification-channels/{id}:
     parameters: [{in: path, name: id, required: true, schema: {type: string}}]
     patch:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/NotificationChannelRequest'}}}
       responses: {"200": {description: Updated}, "404": {description: Not found}}
     delete:
       responses: {"204": {description: Deleted}}
@@ -175,3 +206,52 @@ components:
         name: {type: string}
         version: {type: string}
         env: {type: string}
+    ConnectionRequest:
+      type: object
+      required: [name, provider]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        provider: {type: string, enum: [alibaba_cloud, tencent, aws, cloudflare]}
+        enabled: {type: boolean}
+        sync_interval: {type: string, example: 24h}
+        credentials: {type: object, additionalProperties: {type: string}, writeOnly: true}
+    AlertRuleRequest:
+      type: object
+      required: [name]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        enabled: {type: boolean}
+        domain_thresholds: {type: array, items: {type: integer}}
+        certificate_thresholds: {type: array, items: {type: integer}}
+        stale_after_hours: {type: integer, minimum: 1}
+        providers: {type: array, items: {type: string}}
+        owners: {type: array, items: {type: string}}
+        environments: {type: array, items: {type: string}}
+        tags: {type: array, items: {type: string}}
+    NotificationChannelRequest:
+      type: object
+      required: [name, kind, endpoint]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [email, webhook]}
+        endpoint: {type: string, format: uri}
+        enabled: {type: boolean}
+        signing_secret: {type: string, writeOnly: true}
+        credentials: {type: object, additionalProperties: {type: string}, writeOnly: true}
+    AlertActionRequest:
+      type: object
+      properties:
+        actor: {type: string}
+        note: {type: string}
+    MemberRequest:
+      type: object
+      required: [email, name]
+      properties:
+        id: {type: string}
+        email: {type: string, format: email}
+        name: {type: string}
+        role: {type: string, enum: [administrator, viewer]}
+        status: {type: string, enum: [invited, active, suspended]}

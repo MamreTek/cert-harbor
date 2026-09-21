@@ -146,7 +146,12 @@ func (s *Store) ListMembers() []Member {
 	for _, member := range s.members {
 		items = append(items, member)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Email < items[j].Email })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Email == items[j].Email {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Email < items[j].Email
+	})
 	return items
 }
 
@@ -352,7 +357,12 @@ func (s *Store) ListConnections() []Connection {
 	for _, connection := range s.connections {
 		items = append(items, connection)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Name == items[j].Name {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Name < items[j].Name
+	})
 	return items
 }
 
@@ -486,13 +496,29 @@ func (s *Store) listDomainsLocked(filter Filter) []domain.Domain {
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if filter.Sort == "expires_at" {
-			return beforeOrAfter(items[i].ExpiresAt, items[j].ExpiresAt, filter.SortDesc)
+			forward := beforeOrAfter(items[i].ExpiresAt, items[j].ExpiresAt, filter.SortDesc)
+			reverse := beforeOrAfter(items[j].ExpiresAt, items[i].ExpiresAt, filter.SortDesc)
+			if forward != reverse {
+				return forward
+			}
+			return items[i].ID < items[j].ID
 		}
 		if filter.Sort == "last_seen_at" {
-			return timeBeforeOrAfter(items[i].LastSeenAt, items[j].LastSeenAt, filter.SortDesc)
+			forward := timeBeforeOrAfter(items[i].LastSeenAt, items[j].LastSeenAt, filter.SortDesc)
+			reverse := timeBeforeOrAfter(items[j].LastSeenAt, items[i].LastSeenAt, filter.SortDesc)
+			if forward != reverse {
+				return forward
+			}
+			return items[i].ID < items[j].ID
 		}
 		if filter.SortDesc {
+			if items[i].Name == items[j].Name {
+				return items[i].ID < items[j].ID
+			}
 			return items[i].Name > items[j].Name
+		}
+		if items[i].Name == items[j].Name {
+			return items[i].ID < items[j].ID
 		}
 		return items[i].Name < items[j].Name
 	})
@@ -509,7 +535,12 @@ func (s *Store) ListAllDomains() []domain.Domain {
 	for _, item := range s.domains {
 		items = append(items, item)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Name == items[j].Name {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Name < items[j].Name
+	})
 	return items
 }
 
@@ -542,13 +573,29 @@ func (s *Store) listCertificatesLocked(filter Filter) []domain.Certificate {
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if filter.Sort == "expires_at" {
-			return timeBeforeOrAfter(items[i].ValidTo, items[j].ValidTo, filter.SortDesc)
+			forward := timeBeforeOrAfter(items[i].ValidTo, items[j].ValidTo, filter.SortDesc)
+			reverse := timeBeforeOrAfter(items[j].ValidTo, items[i].ValidTo, filter.SortDesc)
+			if forward != reverse {
+				return forward
+			}
+			return items[i].ID < items[j].ID
 		}
 		if filter.Sort == "last_seen_at" {
-			return timeBeforeOrAfter(items[i].LastSeenAt, items[j].LastSeenAt, filter.SortDesc)
+			forward := timeBeforeOrAfter(items[i].LastSeenAt, items[j].LastSeenAt, filter.SortDesc)
+			reverse := timeBeforeOrAfter(items[j].LastSeenAt, items[i].LastSeenAt, filter.SortDesc)
+			if forward != reverse {
+				return forward
+			}
+			return items[i].ID < items[j].ID
 		}
 		if filter.SortDesc {
+			if items[i].CommonName == items[j].CommonName {
+				return items[i].ID < items[j].ID
+			}
 			return items[i].CommonName > items[j].CommonName
+		}
+		if items[i].CommonName == items[j].CommonName {
+			return items[i].ID < items[j].ID
 		}
 		return items[i].CommonName < items[j].CommonName
 	})
@@ -565,7 +612,12 @@ func (s *Store) ListAllCertificates() []domain.Certificate {
 	for _, item := range s.certificates {
 		items = append(items, item)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CommonName < items[j].CommonName })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CommonName == items[j].CommonName {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CommonName < items[j].CommonName
+	})
 	return items
 }
 
@@ -580,7 +632,12 @@ func (s *Store) ListSyncRuns() []SyncRun {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	items := append([]SyncRun(nil), s.syncRuns...)
-	sort.Slice(items, func(i, j int) bool { return items[i].StartedAt.After(items[j].StartedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].StartedAt.Equal(items[j].StartedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].StartedAt.After(items[j].StartedAt)
+	})
 	return items
 }
 
@@ -612,7 +669,12 @@ func (s *Store) ListAuditEvents() []AuditEvent {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	items := append([]AuditEvent(nil), s.auditEvents...)
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
 	return items
 }
 

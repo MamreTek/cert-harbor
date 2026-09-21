@@ -2,8 +2,12 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/MamreTek/cert-harbor/internal/domain"
 )
 
 func TestFixtureAdapterPaginatesAndDoesNotExposeCredentials(t *testing.T) {
@@ -26,5 +30,29 @@ func TestFixtureAdapterPaginatesAndDoesNotExposeCredentials(t *testing.T) {
 	}
 	if result.RequestID == "secret" || result.Capabilities.Provider != Cloudflare {
 		t.Fatalf("unsafe or incorrect test result: %#v", result)
+	}
+}
+
+func TestFixtureAdapterPaginatesMultiplePages(t *testing.T) {
+	fixture := filepath.Join(t.TempDir(), "fixture.json")
+	domains := make([]domain.Domain, 101)
+	for index := range domains {
+		domains[index] = domain.Domain{SourceID: "domain-" + string(rune(index)), Name: "example-" + string(rune(index)) + ".com"}
+	}
+	payload, err := json.Marshal(fixturePayload{Domains: domains})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewFixtureAdapter(Cloudflare, fixture, Capabilities{Provider: Cloudflare, Domains: true})
+	first, err := adapter.ListDomains(context.Background(), Credentials{}, "")
+	if err != nil || len(first.Items) != 100 || first.NextCursor != "100" {
+		t.Fatalf("first fixture page = %#v err=%v", first, err)
+	}
+	second, err := adapter.ListDomains(context.Background(), Credentials{}, first.NextCursor)
+	if err != nil || len(second.Items) != 1 || second.NextCursor != "" || second.Items[0].SourceID != domains[100].SourceID {
+		t.Fatalf("second fixture page = %#v err=%v", second, err)
 	}
 }

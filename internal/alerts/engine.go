@@ -145,6 +145,15 @@ func OpenEngine(store *catalog.Store, path string, backends ...catalog.StateBack
 	}
 	if snapshot.Alerts != nil {
 		engine.alerts = snapshot.Alerts
+		for id, alert := range engine.alerts {
+			if alert.DeepLink == "" {
+				alert.DeepLink = "/alerts/" + id
+			}
+			if alert.Freshness == "" {
+				alert.Freshness = "unknown"
+			}
+			engine.alerts[id] = alert
+		}
 	}
 	engine.events = snapshot.Events
 	if migratedFromFile {
@@ -191,7 +200,12 @@ func (e *Engine) Rules() []Rule {
 	for _, rule := range e.rules {
 		items = append(items, rule)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Name == items[j].Name {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Name < items[j].Name
+	})
 	return items
 }
 
@@ -270,7 +284,12 @@ func (e *Engine) ListAlerts(page, pageSize int, state, provider string) ([]Alert
 		}
 		items = append(items, alert)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
 	total := len(items)
 	if page < 1 {
 		page = 1
@@ -406,7 +425,12 @@ func (e *Engine) listAlertsLocked() []Alert {
 	for _, alert := range e.alerts {
 		items = append(items, alert)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
 	return items
 }
 

@@ -6,7 +6,7 @@ The repository contains the runnable MVP: a Go API, React + Ant Design console, 
 
 ## Run locally
 
-Requirements: Go 1.22+, Node.js 18+, npm, and Docker Compose. Docker Compose starts PostgreSQL for the catalog; local `go run` uses JSON snapshots unless `CERT_HARBOR_DATABASE_URL` is set.
+Requirements: Go 1.22+, Node.js 18+, npm, and Docker Compose. Docker Compose starts PostgreSQL for catalog and durable subsystem state; local `go run` uses JSON snapshots unless `CERT_HARBOR_DATABASE_URL` is set.
 
 Run the API:
 

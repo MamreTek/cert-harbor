@@ -21,6 +21,12 @@ func TestSyncPreservesAssetsWhenProviderFixtureFails(t *testing.T) {
 	if run, err := service.Sync(context.Background(), "demo"); err != nil || run.Status != "succeeded" {
 		t.Fatalf("initial sync = %#v, %v", run, err)
 	}
+	if run, err := service.Sync(context.Background(), "demo"); err != nil || run.Status != "succeeded" {
+		t.Fatalf("repeat sync = %#v, %v", run, err)
+	}
+	if runs := store.ListSyncRuns(); len(runs) != 2 || runs[0].Status != "succeeded" || runs[1].Status != "succeeded" {
+		t.Fatalf("repeat sync runs = %#v", runs)
+	}
 	// A cancelled provider request must not affect the successful connection's inventory.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

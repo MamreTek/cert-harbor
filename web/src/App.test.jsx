@@ -39,4 +39,19 @@ describe('CertHarbor console', () => {
     fireEvent.click(screen.getByText('Acknowledge'))
     await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/alerts/alert-1/acknowledge' && options.method === 'POST')).toBe(true))
   })
+
+  it('opens inventory details from the domain table', async () => {
+    const fetcher = async (url) => {
+      if (url.includes('/domains?')) return { ok: true, json: async () => ({ items: [{ id: 'domain-1', name: 'example.com', provider: 'cloudflare', source_id: 'zone-1', status: 'active', last_seen_at: 'now', source_url: 'https://provider.example/domain/zone-1', tags: ['prod'] }], total: 1 }) }
+      if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 1, certificates: 0, connections: 0, stale_assets: 0 }) }
+      return { ok: true, json: async () => ({ items: [] }) }
+    }
+    render(<App fetcher={fetcher} />)
+    await waitFor(() => expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Domain inventory'))
+    await waitFor(() => expect(screen.getByText('example.com')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('View'))
+    expect(screen.getByText('Domain details')).toBeInTheDocument()
+    expect(screen.getByText('Open provider source')).toBeInTheDocument()
+  })
 })

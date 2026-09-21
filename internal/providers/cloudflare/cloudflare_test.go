@@ -42,3 +42,22 @@ func TestLiveAdapterMapsZonesAndCertificatePacks(t *testing.T) {
 		t.Fatalf("certificates = %#v, err = %v", certificates, err)
 	}
 }
+
+func TestLiveAdapterRetriesRateLimits(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("CF-Ray", "retry-ray")
+		_, _ = w.Write([]byte(`{"success":true,"result":[],"result_info":{"page":1,"total_pages":1}}`))
+	}))
+	defer server.Close()
+	adapter := newLiveAdapter(server.URL, server.Client())
+	result, err := adapter.Test(context.Background(), providers.Credentials{Values: map[string]string{"token": "live-token"}})
+	if err != nil || result.RequestID != "retry-ray" || calls != 2 {
+		t.Fatalf("retry test result=%#v err=%v calls=%d", result, err, calls)
+	}
+}
