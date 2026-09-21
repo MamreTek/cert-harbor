@@ -484,9 +484,7 @@ func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
-	filter.Page = 1
-	filter.PageSize = 200
-	items, _ := s.store.ListDomains(filter)
+	items := s.store.ListDomainsForExport(filter)
 	rows := [][]string{{"id", "provider", "source_id", "name", "status", "owner", "environment", "expires_at", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		expiresAt := ""
@@ -500,9 +498,7 @@ func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) exportCertificates(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
-	filter.Page = 1
-	filter.PageSize = 200
-	items, _ := s.store.ListCertificates(filter)
+	items := s.store.ListCertificatesForExport(filter)
 	rows := [][]string{{"id", "provider", "source_id", "common_name", "issuer", "serial_number", "fingerprint", "valid_from", "valid_to", "owner", "environment", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, item.Issuer, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Owner, item.Environment, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})

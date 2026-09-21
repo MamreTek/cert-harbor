@@ -458,6 +458,17 @@ func (s *Store) ReplaceAssets(connectionID string, syncedAt time.Time, domains [
 func (s *Store) ListDomains(filter Filter) ([]domain.Domain, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	items := s.listDomainsLocked(filter)
+	return paginate(items, filter)
+}
+
+func (s *Store) ListDomainsForExport(filter Filter) []domain.Domain {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listDomainsLocked(filter)
+}
+
+func (s *Store) listDomainsLocked(filter Filter) []domain.Domain {
 	items := make([]domain.Domain, 0, len(s.domains))
 	for _, item := range s.domains {
 		if matchesDomain(filter, item) {
@@ -476,7 +487,7 @@ func (s *Store) ListDomains(filter Filter) ([]domain.Domain, int) {
 		}
 		return items[i].Name < items[j].Name
 	})
-	return paginate(items, filter)
+	return items
 }
 
 // ListAllDomains returns every domain that is currently known to the catalog.
@@ -503,6 +514,17 @@ func (s *Store) GetDomain(id string) (domain.Domain, bool) {
 func (s *Store) ListCertificates(filter Filter) ([]domain.Certificate, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	items := s.listCertificatesLocked(filter)
+	return paginate(items, filter)
+}
+
+func (s *Store) ListCertificatesForExport(filter Filter) []domain.Certificate {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listCertificatesLocked(filter)
+}
+
+func (s *Store) listCertificatesLocked(filter Filter) []domain.Certificate {
 	items := make([]domain.Certificate, 0, len(s.certificates))
 	for _, item := range s.certificates {
 		if matchesCertificate(filter, item) {
@@ -521,7 +543,7 @@ func (s *Store) ListCertificates(filter Filter) ([]domain.Certificate, int) {
 		}
 		return items[i].CommonName < items[j].CommonName
 	})
-	return paginate(items, filter)
+	return items
 }
 
 // ListAllCertificates returns every certificate that is currently known to the

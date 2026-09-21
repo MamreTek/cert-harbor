@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -40,6 +41,22 @@ func TestInventoryFiltersExpiryState(t *testing.T) {
 		if total != 1 || len(items) != 1 || items[0].Name != want {
 			t.Fatalf("expiry state %q = total %d items %#v", state, total, items)
 		}
+	}
+}
+
+func TestExportQueriesAreNotCappedByAPIPageSize(t *testing.T) {
+	store := NewStore()
+	domains := make([]domain.Domain, 0, 205)
+	for index := 0; index < 205; index++ {
+		number := strconv.Itoa(index)
+		domains = append(domains, domain.Domain{ID: "domain-" + number, Provider: string(providers.Cloudflare), Name: "example-" + number + ".com"})
+	}
+	if err := store.ReplaceAssets("connection", time.Now().UTC(), domains, nil); err != nil {
+		t.Fatal(err)
+	}
+	items := store.ListDomainsForExport(Filter{Provider: string(providers.Cloudflare)})
+	if len(items) != 205 {
+		t.Fatalf("export query returned %d domains, want 205", len(items))
 	}
 }
 
