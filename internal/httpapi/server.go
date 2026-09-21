@@ -480,7 +480,10 @@ func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
-	items, _ := s.store.ListDomains(catalog.Filter{Search: r.URL.Query().Get("search"), Provider: r.URL.Query().Get("provider"), Page: 1, PageSize: 200})
+	filter := parseFilter(r)
+	filter.Page = 1
+	filter.PageSize = 200
+	items, _ := s.store.ListDomains(filter)
 	rows := [][]string{{"id", "provider", "source_id", "name", "status", "owner", "environment", "expires_at", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		expiresAt := ""
@@ -493,7 +496,10 @@ func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exportCertificates(w http.ResponseWriter, r *http.Request) {
-	items, _ := s.store.ListCertificates(catalog.Filter{Search: r.URL.Query().Get("search"), Provider: r.URL.Query().Get("provider"), Page: 1, PageSize: 200})
+	filter := parseFilter(r)
+	filter.Page = 1
+	filter.PageSize = 200
+	items, _ := s.store.ListCertificates(filter)
 	rows := [][]string{{"id", "provider", "source_id", "common_name", "issuer", "serial_number", "fingerprint", "valid_from", "valid_to", "owner", "environment", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, item.Issuer, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Owner, item.Environment, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
@@ -912,10 +918,21 @@ func findMember(items []catalog.Member, id string) (catalog.Member, bool) {
 }
 
 func parseFilter(r *http.Request) catalog.Filter {
-	filter := catalog.Filter{Search: r.URL.Query().Get("search"), Provider: r.URL.Query().Get("provider"), Page: page(r), PageSize: pageSize(r)}
+	filter := catalog.Filter{Search: r.URL.Query().Get("search"), Provider: r.URL.Query().Get("provider"), Owner: r.URL.Query().Get("owner"), Environment: r.URL.Query().Get("environment"), Status: r.URL.Query().Get("status"), Tag: r.URL.Query().Get("tag"), Sort: r.URL.Query().Get("sort"), Page: page(r), PageSize: pageSize(r)}
+	filter.SortDesc = strings.EqualFold(r.URL.Query().Get("order"), "desc")
 	if value := r.URL.Query().Get("stale"); value != "" {
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			filter.Stale = &parsed
+		}
+	}
+	if value := r.URL.Query().Get("expires_before"); value != "" {
+		if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+			filter.ExpiresBefore = &parsed
+		}
+	}
+	if value := r.URL.Query().Get("expires_after"); value != "" {
+		if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+			filter.ExpiresAfter = &parsed
 		}
 	}
 	return filter

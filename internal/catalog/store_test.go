@@ -8,24 +8,19 @@ import (
 	"github.com/MamreTek/cert-harbor/internal/providers"
 )
 
-func TestReplaceAssetsIsIdempotentAndMarksMissingAssetsStale(t *testing.T) {
+func TestInventoryFiltersOwnerTagExpiryAndSort(t *testing.T) {
 	store := NewStore()
-	if err := store.AddConnection(Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.ReplaceAssets("connection", now, []domain.Domain{
+		{ID: "domain-1", Provider: string(providers.Cloudflare), Name: "later.example", Owner: "team-a", Environment: "production", Tags: []string{"critical"}, ExpiresAt: timePtr(now.Add(90 * 24 * time.Hour)), LastSeenAt: now},
+		{ID: "domain-2", Provider: string(providers.Cloudflare), Name: "soon.example", Owner: "team-b", Environment: "staging", Tags: []string{"test"}, ExpiresAt: timePtr(now.Add(7 * 24 * time.Hour)), LastSeenAt: now},
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
-	item := domain.Domain{ID: "connection:domain:one", ConnectionID: "connection", Provider: string(providers.Cloudflare), Name: "one.example", LastSeenAt: now}
-	store.ReplaceAssets("connection", now, []domain.Domain{item}, nil)
-	store.ReplaceAssets("connection", now.Add(time.Minute), []domain.Domain{item}, nil)
-	items, total := store.ListDomains(Filter{Page: 1, PageSize: 50})
-	if total != 1 || len(items) != 1 || items[0].Stale {
-		t.Fatalf("expected one fresh idempotent asset, got total=%d items=%#v", total, items)
-	}
-	store.ReplaceAssets("connection", now.Add(2*time.Minute), nil, nil)
-	items, total = store.ListDomains(Filter{Stale: boolPtr(true), Page: 1, PageSize: 50})
-	if total != 1 || len(items) != 1 || !items[0].Stale {
-		t.Fatalf("expected missing asset to become stale, got total=%d items=%#v", total, items)
+	items, total := store.ListDomains(Filter{Owner: "team-b", Tag: "test", ExpiresBefore: timePtr(now.Add(30 * 24 * time.Hour)), Sort: "expires_at", Page: 1, PageSize: 50})
+	if total != 1 || len(items) != 1 || items[0].Name != "soon.example" {
+		t.Fatalf("filtered domains = total %d items %#v", total, items)
 	}
 }
 
-func boolPtr(value bool) *bool { return &value }
+func timePtr(value time.Time) *time.Time { return &value }

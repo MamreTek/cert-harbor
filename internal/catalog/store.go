@@ -67,11 +67,19 @@ type Member struct {
 }
 
 type Filter struct {
-	Search   string
-	Provider string
-	Stale    *bool
-	Page     int
-	PageSize int
+	Search        string
+	Provider      string
+	Owner         string
+	Environment   string
+	Status        string
+	Tag           string
+	Stale         *bool
+	ExpiresBefore *time.Time
+	ExpiresAfter  *time.Time
+	Sort          string
+	SortDesc      bool
+	Page          int
+	PageSize      int
 }
 
 type Store struct {
@@ -382,11 +390,22 @@ func (s *Store) ListDomains(filter Filter) ([]domain.Domain, int) {
 	defer s.mu.RUnlock()
 	items := make([]domain.Domain, 0, len(s.domains))
 	for _, item := range s.domains {
-		if matches(filter, item.Provider, item.Name, item.Stale) {
+		if matchesDomain(filter, item) {
 			items = append(items, item)
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	sort.Slice(items, func(i, j int) bool {
+		if filter.Sort == "expires_at" {
+			return beforeOrAfter(items[i].ExpiresAt, items[j].ExpiresAt, filter.SortDesc)
+		}
+		if filter.Sort == "last_seen_at" {
+			return timeBeforeOrAfter(items[i].LastSeenAt, items[j].LastSeenAt, filter.SortDesc)
+		}
+		if filter.SortDesc {
+			return items[i].Name > items[j].Name
+		}
+		return items[i].Name < items[j].Name
+	})
 	return paginate(items, filter)
 }
 
@@ -402,11 +421,22 @@ func (s *Store) ListCertificates(filter Filter) ([]domain.Certificate, int) {
 	defer s.mu.RUnlock()
 	items := make([]domain.Certificate, 0, len(s.certificates))
 	for _, item := range s.certificates {
-		if matches(filter, item.Provider, item.CommonName, item.Stale) {
+		if matchesCertificate(filter, item) {
 			items = append(items, item)
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CommonName < items[j].CommonName })
+	sort.Slice(items, func(i, j int) bool {
+		if filter.Sort == "expires_at" {
+			return timeBeforeOrAfter(items[i].ValidTo, items[j].ValidTo, filter.SortDesc)
+		}
+		if filter.Sort == "last_seen_at" {
+			return timeBeforeOrAfter(items[i].LastSeenAt, items[j].LastSeenAt, filter.SortDesc)
+		}
+		if filter.SortDesc {
+			return items[i].CommonName > items[j].CommonName
+		}
+		return items[i].CommonName < items[j].CommonName
+	})
 	return paginate(items, filter)
 }
 
@@ -468,14 +498,63 @@ func (s *Store) Summary() map[string]int {
 	}
 }
 
-func matches(filter Filter, provider, name string, stale bool) bool {
+func matches(filter Filter, provider, name, owner, environment string, stale bool, tags []string, expiresAt *time.Time) bool {
 	if filter.Provider != "" && !strings.EqualFold(filter.Provider, provider) {
+		return false
+	}
+	if filter.Owner != "" && !strings.EqualFold(filter.Owner, owner) {
+		return false
+	}
+	if filter.Environment != "" && !strings.EqualFold(filter.Environment, environment) {
 		return false
 	}
 	if filter.Stale != nil && *filter.Stale != stale {
 		return false
 	}
+	if filter.Tag != "" && !containsFold(tags, filter.Tag) {
+		return false
+	}
+	if filter.ExpiresBefore != nil && (expiresAt == nil || expiresAt.After(*filter.ExpiresBefore)) {
+		return false
+	}
+	if filter.ExpiresAfter != nil && (expiresAt == nil || expiresAt.Before(*filter.ExpiresAfter)) {
+		return false
+	}
 	return filter.Search == "" || strings.Contains(strings.ToLower(name), strings.ToLower(filter.Search))
+}
+
+func matchesDomain(filter Filter, item domain.Domain) bool {
+	return (filter.Status == "" || strings.EqualFold(filter.Status, item.Status)) && matches(filter, item.Provider, item.Name, item.Owner, item.Environment, item.Stale, item.Tags, item.ExpiresAt)
+}
+
+func matchesCertificate(filter Filter, item domain.Certificate) bool {
+	return matches(filter, item.Provider, item.CommonName, item.Owner, item.Environment, item.Stale, item.Tags, &item.ValidTo)
+}
+
+func containsFold(values []string, wanted string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, wanted) {
+			return true
+		}
+	}
+	return false
+}
+
+func timeBeforeOrAfter(left, right time.Time, desc bool) bool {
+	if desc {
+		return left.After(right)
+	}
+	return left.Before(right)
+}
+
+func beforeOrAfter(left, right *time.Time, desc bool) bool {
+	if left == nil {
+		return false
+	}
+	if right == nil {
+		return true
+	}
+	return timeBeforeOrAfter(*left, *right, desc)
 }
 
 func paginate[T any](items []T, filter Filter) ([]T, int) {
