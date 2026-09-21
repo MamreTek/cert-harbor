@@ -169,6 +169,7 @@ func (e *Engine) Evaluate() []Alert {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.now()
+	eventStart := len(e.events)
 	for _, rule := range e.rules {
 		if !rule.Enabled {
 			continue
@@ -195,7 +196,26 @@ func (e *Engine) Evaluate() []Alert {
 		}
 	}
 	_ = e.persistLocked()
+	e.auditEvaluationEvents(e.events[eventStart:], now)
 	return e.listAlertsLocked()
+}
+
+func (e *Engine) auditEvaluationEvents(events []Event, now time.Time) {
+	if len(events) == 0 {
+		return
+	}
+	correlationID := "monitor-" + now.Format("20060102T150405.000000000Z")
+	for _, event := range events {
+		_ = e.catalog.AppendAudit(catalog.AuditEvent{
+			Actor:         event.Actor,
+			Action:        "alert." + event.ToState,
+			ObjectType:    "alert",
+			ObjectID:      event.AlertID,
+			Outcome:       "succeeded",
+			CorrelationID: correlationID,
+			CreatedAt:     event.CreatedAt,
+		})
+	}
 }
 
 func (e *Engine) Rules() []Rule {
@@ -396,6 +416,8 @@ func (e *Engine) upsertAlert(alert Alert) {
 		alert.State = existing.State
 		alert.Actor = existing.Actor
 		alert.Note = existing.Note
+	} else {
+		e.events = append(e.events, Event{ID: fmt.Sprintf("event-%d", len(e.events)+1), AlertID: alert.ID, ToState: alert.State, Actor: "system", CreatedAt: alert.UpdatedAt})
 	}
 	e.alerts[alert.ID] = alert
 }

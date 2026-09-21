@@ -56,8 +56,18 @@ func TestEvaluateCreatesStableExpiringAlertAndTransitions(t *testing.T) {
 	if _, err := engine.Transition(alerts[0].ID, StateAcknowledged, "admin", "tracking"); err != nil {
 		t.Fatal(err)
 	}
-	if len(engine.Events()) != 1 || engine.Alerts()[0].State != StateAcknowledged {
+	if len(engine.Events()) != 2 || engine.Alerts()[0].State != StateAcknowledged {
 		t.Fatalf("missing acknowledgement event: %#v %#v", engine.Alerts(), engine.Events())
+	}
+	auditMatched := false
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "alert.open" && event.ObjectID == alerts[0].ID && event.CorrelationID != "" {
+			auditMatched = true
+			break
+		}
+	}
+	if !auditMatched {
+		t.Fatalf("automatic alert opening was not audited: %#v", store.ListAuditEvents())
 	}
 }
 
@@ -87,7 +97,7 @@ func TestOpenEngineRestoresAlertStateAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reopened.Rules()) != 1 || len(reopened.Alerts()) != 1 || reopened.Alerts()[0].State != StateAcknowledged || len(reopened.Events()) != 1 {
+	if len(reopened.Rules()) != 1 || len(reopened.Alerts()) != 1 || reopened.Alerts()[0].State != StateAcknowledged || len(reopened.Events()) != 2 {
 		t.Fatalf("unexpected restored state: rules=%#v alerts=%#v events=%#v", reopened.Rules(), reopened.Alerts(), reopened.Events())
 	}
 }
