@@ -624,12 +624,13 @@ func (s *Server) transitionAlert(w http.ResponseWriter, r *http.Request, state s
 }
 
 type notificationRequest struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Kind          string `json:"kind"`
-	Endpoint      string `json:"endpoint"`
-	Enabled       *bool  `json:"enabled"`
-	SigningSecret string `json:"signing_secret"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Kind          string            `json:"kind"`
+	Endpoint      string            `json:"endpoint"`
+	Enabled       *bool             `json:"enabled"`
+	SigningSecret string            `json:"signing_secret"`
+	Credentials   map[string]string `json:"credentials"`
 }
 
 func (s *Server) notificationChannels(w http.ResponseWriter, _ *http.Request) {
@@ -668,6 +669,23 @@ func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Reques
 		}
 		if err := s.notifications.SetSigningSecret(request.ID, ciphertext); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save signing secret"})
+			return
+		}
+	}
+	if request.Credentials != nil {
+		if s.secrets == nil {
+			_ = s.notifications.DeleteChannel(request.ID)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "encryption key is required for notification credentials"})
+			return
+		}
+		ciphertext, err := s.secrets.EncryptMap(request.Credentials)
+		if err != nil {
+			_ = s.notifications.DeleteChannel(request.ID)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encrypt notification credentials"})
+			return
+		}
+		if err := s.notifications.SetCredentials(request.ID, ciphertext); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save notification credentials"})
 			return
 		}
 	}
@@ -720,6 +738,22 @@ func (s *Server) updateNotificationChannel(w http.ResponseWriter, r *http.Reques
 		}
 		if err := s.notifications.SetSigningSecret(existing.ID, ciphertext); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save signing secret"})
+			return
+		}
+		channel, _ = findChannel(s.notifications.Channels(), existing.ID)
+	}
+	if request.Credentials != nil {
+		if s.secrets == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "encryption key is required for notification credentials"})
+			return
+		}
+		ciphertext, encryptErr := s.secrets.EncryptMap(request.Credentials)
+		if encryptErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encrypt notification credentials"})
+			return
+		}
+		if err := s.notifications.SetCredentials(existing.ID, ciphertext); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save notification credentials"})
 			return
 		}
 		channel, _ = findChannel(s.notifications.Channels(), existing.ID)

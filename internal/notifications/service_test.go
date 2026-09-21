@@ -1,12 +1,16 @@
 package notifications
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/security"
@@ -111,5 +115,70 @@ func TestOpenServiceRestoresChannelsAndDeliveries(t *testing.T) {
 	}
 	if len(reopened.Deliveries()) != 1 || reopened.Deliveries()[0].ID != deliveries[0].ID {
 		t.Fatalf("unexpected restored deliveries = %#v", reopened.Deliveries())
+	}
+}
+
+func TestEmailDeliveryUsesEncryptedSMTPCredentials(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		_, _ = fmt.Fprint(connection, "220 localhost ESMTP\r\n")
+		scanner := bufio.NewScanner(connection)
+		for scanner.Scan() {
+			line := scanner.Text()
+			switch {
+			case len(line) >= 4 && line[:4] == "EHLO":
+				_, _ = fmt.Fprint(connection, "250-localhost\r\n250 OK\r\n")
+			case len(line) >= 10 && line[:10] == "MAIL FROM:":
+				_, _ = fmt.Fprint(connection, "250 OK\r\n")
+			case len(line) >= 8 && line[:8] == "RCPT TO:":
+				_, _ = fmt.Fprint(connection, "250 OK\r\n")
+			case line == "DATA":
+				_, _ = fmt.Fprint(connection, "354 End data with <CR><LF>.<CR><LF>\r\n")
+				for scanner.Scan() && scanner.Text() != "." {
+				}
+				accepted <- struct{}{}
+				_, _ = fmt.Fprint(connection, "250 OK\r\n")
+			case line == "QUIT":
+				_, _ = fmt.Fprint(connection, "221 Bye\r\n")
+				return
+			default:
+				_, _ = fmt.Fprint(connection, "250 OK\r\n")
+			}
+		}
+	}()
+
+	box, err := security.NewSecretBox("notification-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := box.EncryptMap(map[string]string{"from": "cert-harbor@example.com", "to": "ops@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(box)
+	if err := service.AddChannel(Channel{ID: "email", Name: "Email", Kind: KindEmail, Endpoint: "smtp://" + listener.Addr().String(), Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetCredentials("email", credentials); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := service.Test(context.Background(), "email")
+	if err != nil || delivery.Status != "delivered" || delivery.Attempts != 1 {
+		t.Fatalf("email delivery = %#v, err = %v", delivery, err)
+	}
+	select {
+	case <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("SMTP server did not receive the message")
 	}
 }

@@ -11,10 +11,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/smtp"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +38,7 @@ type Channel struct {
 	Enabled                 bool   `json:"enabled"`
 	CredentialsStored       bool   `json:"credentials_stored"`
 	SigningSecretCiphertext string `json:"-"`
+	CredentialsCiphertext   string `json:"-"`
 }
 
 type persistedChannel struct {
@@ -45,6 +49,7 @@ type persistedChannel struct {
 	Enabled                 bool   `json:"enabled"`
 	CredentialsStored       bool   `json:"credentials_stored"`
 	SigningSecretCiphertext string `json:"signing_secret_ciphertext,omitempty"`
+	CredentialsCiphertext   string `json:"credentials_ciphertext,omitempty"`
 }
 
 type Delivery struct {
@@ -103,6 +108,7 @@ func OpenService(secrets *security.SecretBox, path string) (*Service, error) {
 				ID: channel.ID, Name: channel.Name, Kind: channel.Kind, Endpoint: channel.Endpoint,
 				Enabled: channel.Enabled, CredentialsStored: channel.CredentialsStored,
 				SigningSecretCiphertext: channel.SigningSecretCiphertext,
+				CredentialsCiphertext:   channel.CredentialsCiphertext,
 			}
 		}
 	}
@@ -174,6 +180,19 @@ func (s *Service) SetSigningSecret(id, ciphertext string) error {
 	return s.persistLocked()
 }
 
+func (s *Service) SetCredentials(id, ciphertext string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	channel, ok := s.channels[id]
+	if !ok {
+		return errors.New("notification channel not found")
+	}
+	channel.CredentialsCiphertext = ciphertext
+	channel.CredentialsStored = ciphertext != "" || channel.SigningSecretCiphertext != ""
+	s.channels[id] = channel
+	return s.persistLocked()
+}
+
 func (s *Service) Channels() []Channel {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -241,7 +260,7 @@ func (s *Service) dispatchChannel(ctx context.Context, channelID string, alert a
 	case KindWebhook:
 		err = s.sendWebhook(ctx, channel, alert, &delivery)
 	case KindEmail:
-		err = errors.New("email delivery is not configured")
+		err = s.sendEmail(ctx, channel, alert, &delivery)
 	default:
 		err = errors.New("unsupported notification channel")
 	}
@@ -263,6 +282,61 @@ func (s *Service) dispatchChannel(ctx context.Context, channelID string, alert a
 	return delivery, err
 }
 
+func (s *Service) sendEmail(ctx context.Context, channel Channel, alert alerts.Alert, delivery *Delivery) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.secrets == nil || channel.CredentialsCiphertext == "" {
+		return errors.New("email SMTP credentials are not configured")
+	}
+	credentials, err := s.secrets.DecryptMap(channel.CredentialsCiphertext)
+	if err != nil {
+		return errors.New("email SMTP credentials cannot be decrypted")
+	}
+	endpoint, err := url.Parse(channel.Endpoint)
+	if err != nil || endpoint.Scheme != "smtp" || endpoint.Host == "" {
+		return errors.New("email endpoint must be an smtp:// URL")
+	}
+	from := endpoint.Query().Get("from")
+	if from == "" {
+		from = credentials["from"]
+	}
+	to := endpoint.Query().Get("to")
+	if to == "" {
+		to = credentials["to"]
+	}
+	if from == "" || to == "" {
+		return errors.New("email sender and recipient are required")
+	}
+	recipients := strings.FieldsFunc(to, func(r rune) bool { return r == ',' || r == ';' || r == ' ' })
+	if len(recipients) == 0 {
+		return errors.New("email recipient is required")
+	}
+	host := endpoint.Hostname()
+	port := endpoint.Port()
+	if port == "" {
+		port = "25"
+	}
+	server := host + ":" + port
+	var auth smtp.Auth
+	if username := credentials["username"]; username != "" {
+		auth = smtp.PlainAuth("", username, credentials["password"], host)
+	}
+	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: CertHarbor alert: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAlert %s\nAsset: %s (%s)\nProvider: %s\nState: %s\nSeverity: %s\nDays remaining: %s\n", from, strings.Join(recipients, ", "), alert.AssetName, alert.ID, alert.AssetName, alert.AssetKind, alert.Provider, alert.State, alert.Severity, formatDays(alert.DaysRemaining))
+	delivery.Attempts = 1
+	if err := smtp.SendMail(server, auth, from, recipients, []byte(body)); err != nil {
+		return fmt.Errorf("send SMTP email: %w", err)
+	}
+	return nil
+}
+
+func formatDays(days *int) string {
+	if days == nil {
+		return "unknown"
+	}
+	return strconv.Itoa(*days)
+}
+
 func (s *Service) persistLocked() error {
 	if s.filePath == "" {
 		return nil
@@ -277,6 +351,7 @@ func (s *Service) persistLocked() error {
 			ID: channel.ID, Name: channel.Name, Kind: channel.Kind, Endpoint: channel.Endpoint,
 			Enabled: channel.Enabled, CredentialsStored: channel.CredentialsStored,
 			SigningSecretCiphertext: channel.SigningSecretCiphertext,
+			CredentialsCiphertext:   channel.CredentialsCiphertext,
 		}
 	}
 	data, err := json.MarshalIndent(snapshot, "", "  ")
