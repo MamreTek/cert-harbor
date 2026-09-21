@@ -76,6 +76,7 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	if deps.Metrics == nil {
 		deps.Metrics = observability.New()
 	}
+	deps.Syncer.SetMetrics(deps.Metrics)
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}

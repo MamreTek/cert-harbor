@@ -8,6 +8,7 @@ import (
 
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/domain"
+	observability "github.com/MamreTek/cert-harbor/internal/metrics"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/security"
 )
@@ -16,6 +17,7 @@ type Service struct {
 	store    *catalog.Store
 	adapters map[providers.Provider]providers.Adapter
 	secrets  *security.SecretBox
+	metrics  *observability.Metrics
 	now      func() time.Time
 }
 
@@ -27,7 +29,18 @@ func New(store *catalog.Store, adapters map[providers.Provider]providers.Adapter
 	return service
 }
 
+// SetMetrics attaches the process metrics sink used by both manual and scheduled syncs.
+func (s *Service) SetMetrics(metrics *observability.Metrics) {
+	s.metrics = metrics
+}
+
 func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRun, error) {
+	startedAt := time.Now()
+	defer func() {
+		if s.metrics != nil {
+			s.metrics.ObserveDuration("sync", time.Since(startedAt).Seconds())
+		}
+	}()
 	connection, ok := s.store.GetConnection(connectionID)
 	if !ok {
 		return catalog.SyncRun{}, fmt.Errorf("connection %q not found", connectionID)
@@ -44,6 +57,9 @@ func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRu
 
 	domains, certificates, err := s.collect(ctx, adapter, connection)
 	if err != nil {
+		if s.metrics != nil {
+			s.metrics.Inc("provider_errors_total")
+		}
 		failed, finishErr := s.store.FinishSync(run.ID, false, s.now(), 0, 0, err.Error())
 		if finishErr != nil {
 			return catalog.SyncRun{}, finishErr
@@ -65,6 +81,9 @@ func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRu
 		certificates[i].Stale = false
 	}
 	if err := s.store.ReplaceAssets(connection.ID, started, domains, certificates); err != nil {
+		if s.metrics != nil {
+			s.metrics.Inc("provider_errors_total")
+		}
 		summary := fmt.Errorf("persist catalog: %w", err).Error()
 		failed, finishErr := s.store.FinishSync(run.ID, false, s.now(), 0, 0, summary)
 		if finishErr != nil {

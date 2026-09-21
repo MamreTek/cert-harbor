@@ -45,7 +45,7 @@ export function App({ fetcher = defaultFetcher }) {
   const [loading, setLoading] = useState(Boolean(fetcher))
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState('')
-  const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', expiry_state: '', stale: '' })
+  const [inventoryFilters, setInventoryFilters] = useState({ search: '', provider: '', owner: '', environment: '', tag: '', expiry_state: '', stale: '' })
   const [modalKind, setModalKind] = useState('')
   const [modalValues, setModalValues] = useState({})
   const [editingId, setEditingId] = useState('')
@@ -215,6 +215,9 @@ export function App({ fetcher = defaultFetcher }) {
   const renderInventoryFilters = () => <Space wrap className="inventory-filters">
     <Input.Search placeholder="Search inventory" allowClear onSearch={(value) => setInventoryFilters((current) => ({ ...current, search: value }))} onChange={(event) => { if (!event.target.value) setInventoryFilters((current) => ({ ...current, search: '' })) }} />
     <Select allowClear placeholder="Provider" style={{ minWidth: 150 }} value={inventoryFilters.provider || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, provider: value || '' }))} options={connections.map((item) => ({ value: item.provider, label: item.provider }))} />
+    <Input placeholder="Owner / team" allowClear value={inventoryFilters.owner} onChange={(event) => setInventoryFilters((current) => ({ ...current, owner: event.target.value }))} />
+    <Input placeholder="Environment" allowClear value={inventoryFilters.environment} onChange={(event) => setInventoryFilters((current) => ({ ...current, environment: event.target.value }))} />
+    <Input placeholder="Tag" allowClear value={inventoryFilters.tag} onChange={(event) => setInventoryFilters((current) => ({ ...current, tag: event.target.value }))} />
     <Select allowClear placeholder="Expiry state" style={{ minWidth: 150 }} value={inventoryFilters.expiry_state || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, expiry_state: value || '' }))} options={['healthy', 'expiring', 'expired', 'stale', 'unknown'].map((value) => ({ value, label: value }))} />
     <Select allowClear placeholder="Freshness" style={{ minWidth: 130 }} value={inventoryFilters.stale || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, stale: value || '' }))} options={[{ value: 'false', label: 'Current' }, { value: 'true', label: 'Stale' }]} />
   </Space>

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,9 @@ type persistedConnection struct {
 	CredentialsStored     bool                   `json:"credentials_stored"`
 	CredentialsCiphertext string                 `json:"credentials_ciphertext,omitempty"`
 }
+
+//go:embed migrations/001_catalog_snapshot.sql
+var catalogSchema []byte
 
 // OpenStore opens an atomically persisted catalog. An absent file starts empty.
 // When databaseURL is supplied, PostgreSQL is the source of truth and the
@@ -192,13 +196,7 @@ func openPostgres(databaseURL string) (*postgresDatabase, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("connect to postgres catalog: %w", err)
 	}
-	const schema = `
-CREATE TABLE IF NOT EXISTS cert_harbor_catalog_snapshots (
-  snapshot_id SMALLINT PRIMARY KEY,
-  payload JSONB NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
-)`
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	if _, err := db.ExecContext(ctx, string(catalogSchema)); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize postgres catalog schema: %w", err)
 	}

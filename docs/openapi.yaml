@@ -1,0 +1,179 @@
+openapi: 3.0.3
+info:
+  title: CertHarbor API
+  version: 0.2.0
+  description: Versioned domain, certificate, monitoring, notification, and audit API.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses: {"200": {description: Healthy}}
+  /readyz:
+    get:
+      security: []
+      responses: {"200": {description: Ready}, "503": {description: Not ready}}
+  /metrics:
+    get:
+      security: []
+      responses: {"200": {description: Prometheus metrics}}
+  /api/v1/meta:
+    get:
+      security: []
+      responses:
+        "200":
+          description: Service metadata
+          content: {application/json: {schema: {$ref: '#/components/schemas/Meta'}}}
+  /api/v1/workspace:
+    get:
+      responses: {"200": {description: Workspace metadata}}
+  /api/v1/members:
+    get:
+      responses: {"200": {description: Workspace members}}
+    post:
+      responses: {"201": {description: Member invited}}
+  /api/v1/members/{id}:
+    parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+    patch:
+      responses: {"200": {description: Member updated}, "422": {description: Invalid member}}
+    delete:
+      responses: {"204": {description: Member removed}}
+  /api/v1/catalog/summary:
+    get:
+      responses: {"200": {description: Inventory summary}}
+  /api/v1/provider-connections:
+    get:
+      responses: {"200": {description: Provider connections}}
+    post:
+      responses: {"201": {description: Created}, "400": {description: Invalid request}}
+  /api/v1/provider-connections/{id}:
+    parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+    patch:
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+    delete:
+      responses: {"204": {description: Deleted}}
+  /api/v1/provider-connections/{id}/test:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Provider test result}, "422": {description: Provider failure}}
+  /api/v1/provider-connections/{id}/sync:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Sync run}}
+  /api/v1/domains:
+    get:
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}, {$ref: '#/components/parameters/Search'}, {in: query, name: provider, schema: {type: string}}, {in: query, name: owner, schema: {type: string}}, {in: query, name: environment, schema: {type: string}}, {in: query, name: tag, schema: {type: string}}, {in: query, name: expiry_state, schema: {type: string, enum: [healthy, expiring, expired, stale, unknown]}}]
+      responses: {"200": {description: Paginated domains}}
+  /api/v1/domains/{id}:
+    get:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Domain detail}, "404": {description: Not found}}
+  /api/v1/certificates:
+    get:
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}, {$ref: '#/components/parameters/Search'}, {in: query, name: provider, schema: {type: string}}, {in: query, name: status, schema: {type: string}}, {in: query, name: tag, schema: {type: string}}, {in: query, name: expiry_state, schema: {type: string, enum: [healthy, expiring, expired, stale, unknown]}}]
+      responses: {"200": {description: Paginated certificates}}
+  /api/v1/certificates/{id}:
+    get:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Certificate detail}, "404": {description: Not found}}
+  /api/v1/export/domains.csv:
+    get:
+      responses: {"200": {description: Complete filtered CSV export}}
+  /api/v1/export/certificates.csv:
+    get:
+      responses: {"200": {description: Complete filtered CSV export}}
+  /api/v1/sync-runs:
+    get:
+      responses: {"200": {description: Sync run history}}
+  /api/v1/sync-runs/{id}:
+    get:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Sync run detail}, "404": {description: Not found}}
+  /api/v1/alerts:
+    get:
+      parameters: [{in: query, name: page, schema: {type: integer, minimum: 1}}, {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 200}}, {in: query, name: state, schema: {type: string}}, {in: query, name: provider, schema: {type: string}}]
+      responses: {"200": {description: Paginated alerts}}
+  /api/v1/alerts/{id}:
+    get:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Alert detail}, "404": {description: Not found}}
+  /api/v1/alerts/{id}/acknowledge:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Alert acknowledged}}
+  /api/v1/alerts/{id}/resolve:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Alert resolved}}
+  /api/v1/alerts/{id}/suppress:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Alert suppressed}}
+  /api/v1/alerts/{id}/notify:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Notification queued}}
+  /api/v1/monitor/evaluate:
+    post:
+      responses: {"200": {description: Evaluation result}}
+  /api/v1/alert-rules:
+    get:
+      responses: {"200": {description: Alert rules}}
+    post:
+      responses: {"201": {description: Created}}
+  /api/v1/alert-rules/{id}:
+    parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+    patch:
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+    delete:
+      responses: {"204": {description: Deleted}}
+  /api/v1/alert-events:
+    get:
+      responses: {"200": {description: Alert state transition history}}
+  /api/v1/notification-channels:
+    get:
+      responses: {"200": {description: Notification channels}}
+    post:
+      responses: {"201": {description: Created}}
+  /api/v1/notification-channels/{id}:
+    parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+    patch:
+      responses: {"200": {description: Updated}, "404": {description: Not found}}
+    delete:
+      responses: {"204": {description: Deleted}}
+  /api/v1/notification-channels/{id}/test:
+    post:
+      parameters: [{in: path, name: id, required: true, schema: {type: string}}]
+      responses: {"200": {description: Test delivery result}, "422": {description: Delivery failed}}
+  /api/v1/notification-deliveries:
+    get:
+      responses: {"200": {description: Delivery history}}
+  /api/v1/members:
+    get:
+      responses: {"200": {description: Workspace members}}
+    post:
+      responses: {"201": {description: Invited}}
+  /api/v1/audit-events:
+    get:
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses: {"200": {description: Paginated audit events}}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    Page: {in: query, name: page, schema: {type: integer, minimum: 1}}
+    PageSize: {in: query, name: page_size, schema: {type: integer, minimum: 1, maximum: 200}}
+    Search: {in: query, name: search, schema: {type: string}}
+  schemas:
+    Meta:
+      type: object
+      required: [name, version, env]
+      properties:
+        name: {type: string}
+        version: {type: string}
+        env: {type: string}

@@ -66,6 +66,8 @@ Alert rules can be scoped by provider, owner, environment, and tag. Alert evalua
 
 The read-only permission checklist for live adapters is in [`docs/provider-permissions.md`](docs/provider-permissions.md).
 
+The versioned API contract is in [`docs/openapi.yaml`](docs/openapi.yaml); PostgreSQL migration and recovery guidance is in [`docs/operations.md`](docs/operations.md).
+
 Production mode requires `CERT_HARBOR_ENCRYPTION_KEY`, `CERT_HARBOR_ADMIN_TOKEN`, `CERT_HARBOR_VIEWER_TOKEN`, and `CERT_HARBOR_DATABASE_URL`. Copy `.env.example` to `.env` for local configuration; never commit real secrets. To rotate the encryption key, set the new key in `CERT_HARBOR_ENCRYPTION_KEY`, the old key temporarily in `CERT_HARBOR_ENCRYPTION_KEY_OLD`, restart once, then remove the old-key variable.
 
 In production, send either `Authorization: Bearer <token>` or `X-CertHarbor-Token`. Viewer tokens can read inventory, sync history, alerts, and exports; administrator tokens are required for provider tests, synchronization, monitoring evaluation, and alert state changes.
