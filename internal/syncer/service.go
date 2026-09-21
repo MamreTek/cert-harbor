@@ -116,7 +116,14 @@ func (s *Service) collect(ctx context.Context, adapter providers.Adapter, connec
 		return nil, nil, err
 	}
 	var domains []domain.Domain
+	seenDomainCursors := make(map[string]struct{})
 	for cursor := ""; ; {
+		if cursor != "" {
+			if _, seen := seenDomainCursors[cursor]; seen {
+				return nil, nil, fmt.Errorf("provider returned a repeated domain page cursor %q", cursor)
+			}
+			seenDomainCursors[cursor] = struct{}{}
+		}
 		page, err := adapter.ListDomains(ctx, credentials, cursor)
 		if err != nil {
 			return nil, nil, fmt.Errorf("list domains: %w", err)
@@ -128,7 +135,14 @@ func (s *Service) collect(ctx context.Context, adapter providers.Adapter, connec
 		cursor = page.NextCursor
 	}
 	var certificates []domain.Certificate
+	seenCertificateCursors := make(map[string]struct{})
 	for cursor := ""; ; {
+		if cursor != "" {
+			if _, seen := seenCertificateCursors[cursor]; seen {
+				return nil, nil, fmt.Errorf("provider returned a repeated certificate page cursor %q", cursor)
+			}
+			seenCertificateCursors[cursor] = struct{}{}
+		}
 		page, err := adapter.ListCertificates(ctx, credentials, cursor)
 		if err != nil {
 			return nil, nil, fmt.Errorf("list certificates: %w", err)

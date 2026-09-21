@@ -3,6 +3,7 @@ package syncer
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,6 +89,43 @@ func TestServiceDecryptsConnectionCredentialsBeforeProviderCalls(t *testing.T) {
 	if probe.credentials.Values["token"] != "provider-secret" {
 		t.Fatalf("provider credentials = %#v", probe.credentials.Values)
 	}
+}
+
+func TestSyncRejectsRepeatedProviderPageCursor(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "loop", Name: "Loop", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &repeatingCursorAdapter{}
+	service := New(store, map[providers.Provider]providers.Adapter{providers.Cloudflare: adapter})
+	_, err := service.Sync(context.Background(), "loop")
+	if err == nil || !strings.Contains(err.Error(), "repeated domain page cursor") {
+		t.Fatalf("repeated cursor error = %v", err)
+	}
+	runs := store.ListSyncRuns()
+	if len(runs) != 1 || runs[0].Status != "failed" {
+		t.Fatalf("repeated cursor sync run = %#v", runs)
+	}
+}
+
+type repeatingCursorAdapter struct{}
+
+func (a *repeatingCursorAdapter) Provider() providers.Provider { return providers.Cloudflare }
+
+func (a *repeatingCursorAdapter) Capabilities() providers.Capabilities {
+	return providers.Capabilities{Provider: providers.Cloudflare, Domains: true, Certificates: true}
+}
+
+func (a *repeatingCursorAdapter) Test(context.Context, providers.Credentials) (providers.TestResult, error) {
+	return providers.TestResult{Provider: providers.Cloudflare}, nil
+}
+
+func (a *repeatingCursorAdapter) ListDomains(context.Context, providers.Credentials, string) (providers.DomainPage, error) {
+	return providers.DomainPage{NextCursor: "same"}, nil
+}
+
+func (a *repeatingCursorAdapter) ListCertificates(context.Context, providers.Credentials, string) (providers.CertificatePage, error) {
+	return providers.CertificatePage{}, nil
 }
 
 var _ providers.Adapter = (*credentialProbeAdapter)(nil)
