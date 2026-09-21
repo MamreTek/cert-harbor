@@ -248,3 +248,26 @@ func TestEvaluateAppliesTagScopeAcrossTheFullCatalog(t *testing.T) {
 		t.Fatalf("tag-scoped full-catalog alerts = %d, want 1; alerts=%#v", matching, items)
 	}
 }
+
+func TestEvaluateAppliesAssetTypeScope(t *testing.T) {
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	domainExpiry := now.Add(3 * 24 * time.Hour)
+	if err := store.ReplaceAssets("connection", now, []domain.Domain{{ID: "domain", ConnectionID: "connection", Provider: string(providers.Cloudflare), Name: "example.com", ExpiresAt: &domainExpiry, LastSeenAt: now}}, []domain.Certificate{{ID: "certificate", ConnectionID: "connection", Provider: string(providers.Cloudflare), CommonName: "example.com", ValidTo: domainExpiry, LastSeenAt: now}}); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewEngine(store)
+	engine.now = func() time.Time { return now }
+	if err := engine.AddRule(Rule{ID: "domains-only", Name: "Domains only", Enabled: true, DomainThresholds: []int{30}, CertificateThresholds: []int{30}, StaleAfterHours: 24, AssetTypes: []string{"domain"}}); err != nil {
+		t.Fatal(err)
+	}
+	items := engine.Evaluate()
+	for _, item := range items {
+		if item.RuleID == "domains-only" && item.AssetKind != "domain" {
+			t.Fatalf("asset type scope leaked to %s: %#v", item.AssetKind, item)
+		}
+	}
+}

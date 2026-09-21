@@ -29,6 +29,7 @@ type Rule struct {
 	DomainThresholds      []int    `json:"domain_thresholds"`
 	CertificateThresholds []int    `json:"certificate_thresholds"`
 	StaleAfterHours       int      `json:"stale_after_hours"`
+	AssetTypes            []string `json:"asset_types,omitempty"`
 	Providers             []string `json:"providers,omitempty"`
 	Owners                []string `json:"owners,omitempty"`
 	Environments          []string `json:"environments,omitempty"`
@@ -181,6 +182,9 @@ func (e *Engine) Evaluate() []Alert {
 			evaluateCertificate(e, rule, item, now)
 		}
 		for _, connection := range e.catalog.ListConnections() {
+			if !matchesRule(rule, "connection", string(connection.Provider), "", "", nil) {
+				continue
+			}
 			if connection.Status == "unhealthy" || (connection.LastSyncAt != nil && now.Sub(*connection.LastSyncAt) > time.Duration(rule.StaleAfterHours)*time.Hour) {
 				id := rule.ID + ":" + connection.ID + ":sync-stale"
 				e.upsertAlert(Alert{ID: id, RuleID: rule.ID, AssetID: connection.ID, AssetKind: "connection", AssetName: connection.Name, Provider: string(connection.Provider), State: StateOpen, Severity: "high", Freshness: "stale", UpdatedAt: now})
@@ -435,7 +439,7 @@ func (e *Engine) listAlertsLocked() []Alert {
 }
 
 func evaluateDomain(e *Engine, rule Rule, item domain.Domain, now time.Time) {
-	if !matchesRule(rule, item.Provider, item.Owner, item.Environment, item.Tags) {
+	if !matchesRule(rule, "domain", item.Provider, item.Owner, item.Environment, item.Tags) {
 		return
 	}
 	state, severity, days := expiryState(item.ExpiresAt, item.Stale, rule.DomainThresholds, now)
@@ -448,7 +452,7 @@ func evaluateDomain(e *Engine, rule Rule, item domain.Domain, now time.Time) {
 }
 
 func evaluateCertificate(e *Engine, rule Rule, item domain.Certificate, now time.Time) {
-	if !matchesRule(rule, item.Provider, item.Owner, item.Environment, item.Tags) {
+	if !matchesRule(rule, "certificate", item.Provider, item.Owner, item.Environment, item.Tags) {
 		return
 	}
 	expiresAt := item.ValidTo
@@ -513,8 +517,8 @@ func severityForDays(days int) string {
 	}
 }
 
-func matchesRule(rule Rule, provider, owner, environment string, tags []string) bool {
-	return matches(rule.Providers, provider) && matches(rule.Owners, owner) && matches(rule.Environments, environment) && matchesAny(rule.Tags, tags)
+func matchesRule(rule Rule, assetType, provider, owner, environment string, tags []string) bool {
+	return matches(rule.AssetTypes, assetType) && matches(rule.Providers, provider) && matches(rule.Owners, owner) && matches(rule.Environments, environment) && matchesAny(rule.Tags, tags)
 }
 
 func matches(values []string, value string) bool {
@@ -574,6 +578,13 @@ func validateRule(rule Rule) error {
 	for _, threshold := range append(append([]int{}, rule.DomainThresholds...), rule.CertificateThresholds...) {
 		if threshold < 0 {
 			return errors.New("thresholds cannot be negative")
+		}
+	}
+	for _, assetType := range rule.AssetTypes {
+		switch strings.ToLower(strings.TrimSpace(assetType)) {
+		case "domain", "certificate", "connection":
+		default:
+			return fmt.Errorf("unsupported asset type %q", assetType)
 		}
 	}
 	return nil

@@ -618,6 +618,7 @@ type alertRuleRequest struct {
 	DomainThresholds      []int    `json:"domain_thresholds"`
 	CertificateThresholds []int    `json:"certificate_thresholds"`
 	StaleAfterHours       *int     `json:"stale_after_hours"`
+	AssetTypes            []string `json:"asset_types"`
 	Providers             []string `json:"providers"`
 	Owners                []string `json:"owners"`
 	Environments          []string `json:"environments"`
@@ -641,7 +642,7 @@ func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
 	if request.StaleAfterHours != nil {
 		staleAfter = *request.StaleAfterHours
 	}
-	rule := alerting.Rule{ID: request.ID, Name: request.Name, Enabled: enabled, DomainThresholds: request.DomainThresholds, CertificateThresholds: request.CertificateThresholds, StaleAfterHours: staleAfter, Providers: request.Providers, Owners: request.Owners, Environments: request.Environments, Tags: request.Tags}
+	rule := alerting.Rule{ID: request.ID, Name: request.Name, Enabled: enabled, DomainThresholds: request.DomainThresholds, CertificateThresholds: request.CertificateThresholds, StaleAfterHours: staleAfter, AssetTypes: request.AssetTypes, Providers: request.Providers, Owners: request.Owners, Environments: request.Environments, Tags: request.Tags}
 	if len(rule.DomainThresholds) == 0 {
 		rule.DomainThresholds = []int{90, 30, 14, 7, 3}
 	}
@@ -685,6 +686,9 @@ func (s *Server) updateAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.StaleAfterHours != nil {
 		current.StaleAfterHours = *request.StaleAfterHours
+	}
+	if request.AssetTypes != nil {
+		current.AssetTypes = request.AssetTypes
 	}
 	if request.Providers != nil {
 		current.Providers = request.Providers
