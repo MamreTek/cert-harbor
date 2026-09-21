@@ -56,15 +56,16 @@ type persistedChannel struct {
 }
 
 type Delivery struct {
-	ID          string    `json:"id"`
-	ChannelID   string    `json:"channel_id"`
-	AlertID     string    `json:"alert_id"`
-	AlertState  string    `json:"alert_state"`
-	Status      string    `json:"status"`
-	Attempts    int       `json:"attempts"`
-	LastError   string    `json:"last_error,omitempty"`
-	DeliveredAt time.Time `json:"delivered_at,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	CorrelationID string    `json:"correlation_id"`
+	ChannelID     string    `json:"channel_id"`
+	AlertID       string    `json:"alert_id"`
+	AlertState    string    `json:"alert_state"`
+	Status        string    `json:"status"`
+	Attempts      int       `json:"attempts"`
+	LastError     string    `json:"last_error,omitempty"`
+	DeliveredAt   time.Time `json:"delivered_at,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type outboxItem struct {
@@ -417,7 +418,7 @@ func (s *Service) dispatchChannel(ctx context.Context, channelID string, alert a
 	}
 	s.mu.Lock()
 	s.nextID++
-	delivery := Delivery{ID: fmt.Sprintf("delivery-%d", s.nextID), ChannelID: channel.ID, AlertID: alert.ID, AlertState: alert.State, Status: "failed", CreatedAt: s.now()}
+	delivery := Delivery{ID: fmt.Sprintf("delivery-%d", s.nextID), CorrelationID: fmt.Sprintf("corr-delivery-%d", s.nextID), ChannelID: channel.ID, AlertID: alert.ID, AlertState: alert.State, Status: "failed", CreatedAt: s.now()}
 	s.mu.Unlock()
 	var err error
 	switch channel.Kind {
@@ -496,7 +497,7 @@ func (s *Service) sendEmail(ctx context.Context, channel Channel, alert alerts.A
 	if username := credentials["username"]; username != "" {
 		auth = smtp.PlainAuth("", username, credentials["password"], host)
 	}
-	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: CertHarbor alert: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAlert %s\nAsset: %s (%s)\nProvider: %s\nState: %s\nSeverity: %s\nDays remaining: %s\nExpires at: %s\nFreshness: %s\nSource: %s\nDeep link: %s\n", from, strings.Join(recipients, ", "), alert.AssetName, alert.ID, alert.AssetName, alert.AssetKind, alert.Provider, alert.State, alert.Severity, formatDays(alert.DaysRemaining), formatTime(alert.ExpiresAt), valueOrUnknown(alert.Freshness), valueOrUnknown(alert.SourceURL), valueOrUnknown(alert.DeepLink))
+	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: CertHarbor alert: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAlert %s\nAsset: %s (%s)\nProvider: %s\nState: %s\nSeverity: %s\nDays remaining: %s\nExpires at: %s\nFreshness: %s\nSource: %s\nDeep link: %s\nCorrelation ID: %s\n", from, strings.Join(recipients, ", "), alert.AssetName, alert.ID, alert.AssetName, alert.AssetKind, alert.Provider, alert.State, alert.Severity, formatDays(alert.DaysRemaining), formatTime(alert.ExpiresAt), valueOrUnknown(alert.Freshness), valueOrUnknown(alert.SourceURL), valueOrUnknown(alert.DeepLink), delivery.CorrelationID)
 	if err := sendSMTP(ctx, endpoint.Scheme == "smtps", server, host, auth, from, recipients, []byte(body)); err != nil {
 		return fmt.Errorf("send SMTP email: %w", err)
 	}
@@ -603,7 +604,7 @@ func (s *Service) sendWebhook(ctx context.Context, channel Channel, alert alerts
 	if deepLink == "" {
 		deepLink = "/alerts/" + alert.ID
 	}
-	body, err := json.Marshal(map[string]any{"alert": alert, "deep_link": deepLink, "sent_at": s.now().Format(time.RFC3339)})
+	body, err := json.Marshal(map[string]any{"alert": alert, "deep_link": deepLink, "correlation_id": delivery.CorrelationID, "sent_at": s.now().Format(time.RFC3339)})
 	if err != nil {
 		return err
 	}

@@ -62,10 +62,10 @@ func TestWebhookDeliverySignsAndRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	delivery, err := service.Test(context.Background(), "webhook")
-	if err != nil || delivery.Status != "delivered" || delivery.Attempts != 2 {
+	if err != nil || delivery.Status != "delivered" || delivery.Attempts != 2 || delivery.CorrelationID == "" {
 		t.Fatalf("delivery = %#v, err = %v", delivery, err)
 	}
-	if !strings.Contains(string(payload), `"deep_link":"/alerts/test-alert"`) {
+	if !strings.Contains(string(payload), `"deep_link":"/alerts/test-alert"`) || !strings.Contains(string(payload), `"correlation_id":"`+delivery.CorrelationID+`"`) {
 		t.Fatalf("webhook payload missing default deep link: %s", payload)
 	}
 	expiresAt, _ := time.Parse(time.RFC3339, "2026-10-03T00:00:00Z")

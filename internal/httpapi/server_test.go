@@ -244,6 +244,17 @@ func TestSyncAutomaticallyDispatchesOpenAlerts(t *testing.T) {
 	if response.Code != http.StatusOK || requests == 0 || len(notificationService.Deliveries()) == 0 || notificationService.Deliveries()[0].Status != "delivered" {
 		t.Fatalf("automatic dispatch response=%d requests=%d deliveries=%#v body=%s", response.Code, requests, notificationService.Deliveries(), response.Body.String())
 	}
+	delivery := notificationService.Deliveries()[0]
+	correlationMatched := false
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "notification.delivery" && event.ObjectID == delivery.ID && event.CorrelationID == delivery.CorrelationID {
+			correlationMatched = true
+			break
+		}
+	}
+	if !correlationMatched {
+		t.Fatalf("notification delivery correlation was not audited: delivery=%#v events=%#v", delivery, store.ListAuditEvents())
+	}
 }
 
 func TestSyncAndInventoryEndpoints(t *testing.T) {

@@ -993,7 +993,7 @@ func (s *Server) auditDeliveries(r *http.Request, deliveries []notifications.Del
 		if delivery.Status != "delivered" {
 			s.metrics.Inc("notification_failures_total")
 		}
-		if err := s.audit(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status); err != nil && firstErr == nil {
+		if err := s.auditWithCorrelation(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status, delivery.CorrelationID); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -1001,12 +1001,19 @@ func (s *Server) auditDeliveries(r *http.Request, deliveries []notifications.Del
 }
 
 func (s *Server) audit(r *http.Request, action, objectType, objectID, outcome string) error {
+	correlationID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+	if correlationID == "" {
+		correlationID = "req-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	return s.auditWithCorrelation(r, action, objectType, objectID, outcome, correlationID)
+}
+
+func (s *Server) auditWithCorrelation(r *http.Request, action, objectType, objectID, outcome, correlationID string) error {
 	actor := "system"
 	if requestRole, ok := s.authenticate(r); ok {
 		actor = string(requestRole)
 	}
-	correlationID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-	if correlationID == "" {
+	if strings.TrimSpace(correlationID) == "" {
 		correlationID = "req-" + time.Now().UTC().Format("20060102T150405.000000000Z")
 	}
 	return s.store.AppendAudit(catalog.AuditEvent{
