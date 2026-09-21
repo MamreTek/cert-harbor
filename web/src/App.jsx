@@ -71,13 +71,13 @@ export function App({ fetcher = defaultFetcher }) {
     try {
       const responses = await Promise.all([
         requester('/api/v1/catalog/summary'),
-        requester('/api/v1/provider-connections'),
+        requester('/api/v1/provider-connections?page=1&page_size=50'),
         requester(`/api/v1/domains?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
         requester(`/api/v1/certificates?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
         requester('/api/v1/alerts'),
-        requester('/api/v1/alert-rules'),
-        requester('/api/v1/members'),
-        requester('/api/v1/notification-channels'),
+        requester('/api/v1/alert-rules?page=1&page_size=50'),
+        requester('/api/v1/members?page=1&page_size=50'),
+        requester('/api/v1/notification-channels?page=1&page_size=50'),
         requester('/api/v1/sync-runs'),
         requester('/api/v1/audit-events?page=1&page_size=50'),
       ])

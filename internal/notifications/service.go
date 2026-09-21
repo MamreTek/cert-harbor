@@ -284,7 +284,12 @@ func (s *Service) Channels() []Channel {
 	for _, channel := range s.channels {
 		items = append(items, channel)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Name == items[j].Name {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Name < items[j].Name
+	})
 	return items
 }
 
