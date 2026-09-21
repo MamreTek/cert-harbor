@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -16,6 +17,8 @@ type Config struct {
 	WebDir        string
 	Demo          bool
 	FixturePath   string
+	DataPath      string
+	SyncInterval  time.Duration
 }
 
 func FromEnv() Config {
@@ -28,6 +31,8 @@ func FromEnv() Config {
 		WebDir:        valueOrDefault("CERT_HARBOR_WEB_DIR", "web/dist"),
 		Demo:          boolFromEnv("CERT_HARBOR_DEMO"),
 		FixturePath:   valueOrDefault("CERT_HARBOR_FIXTURE_PATH", "examples/demo-fixture.json"),
+		DataPath:      valueOrDefault("CERT_HARBOR_DATA_PATH", "data/cert-harbor.json"),
+		SyncInterval:  durationFromEnv("CERT_HARBOR_SYNC_INTERVAL", 24*time.Hour),
 	}
 }
 
@@ -53,5 +58,13 @@ func valueOrDefault(name, fallback string) string {
 
 func boolFromEnv(name string) bool {
 	value, _ := strconv.ParseBool(os.Getenv(name))
+	return value
+}
+
+func durationFromEnv(name string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(os.Getenv(name))
+	if err != nil || value <= 0 {
+		return fallback
+	}
 	return value
 }

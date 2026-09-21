@@ -20,6 +20,15 @@ const (
 	Cloudflare   Provider = "cloudflare"
 )
 
+func Supported(provider Provider) bool {
+	switch provider {
+	case AlibabaCloud, Tencent, AWS, Cloudflare:
+		return true
+	default:
+		return false
+	}
+}
+
 type Credentials struct {
 	Values map[string]string
 }

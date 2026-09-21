@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
 	"github.com/MamreTek/cert-harbor/internal/httpapi"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
+	"github.com/MamreTek/cert-harbor/internal/scheduler"
 	"github.com/MamreTek/cert-harbor/internal/syncer"
 )
 
@@ -17,25 +22,39 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatal(err)
 	}
-	store := catalog.NewStore()
+	store, err := catalog.OpenStore(cfg.DataPath)
+	if err != nil {
+		log.Fatalf("open catalog store: %v", err)
+	}
 	adapters := registry.New(cfg.FixturePath)
 	syncService := syncer.New(store, adapters)
 	if cfg.Demo {
-		if err := store.AddConnection(catalog.Connection{
-			ID:           "demo-cloudflare",
-			Name:         "Demo Cloudflare",
-			Provider:     providers.Cloudflare,
-			Enabled:      true,
-			Source:       "fixture",
-			FixturePath:  cfg.FixturePath,
-			Capabilities: adapters[providers.Cloudflare].Capabilities(),
-		}); err != nil {
-			log.Fatal(err)
+		if _, exists := store.GetConnection("demo-cloudflare"); !exists {
+			if err := store.AddConnection(catalog.Connection{
+				ID:           "demo-cloudflare",
+				Name:         "Demo Cloudflare",
+				Provider:     providers.Cloudflare,
+				Enabled:      true,
+				Source:       "fixture",
+				FixturePath:  cfg.FixturePath,
+				Capabilities: adapters[providers.Cloudflare].Capabilities(),
+			}); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go scheduler.New(store, syncService).Run(ctx, cfg.SyncInterval)
+
+	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.NewServer(cfg, httpapi.Dependencies{Store: store, Syncer: syncService}).Handler()}
+	go func() {
+		<-ctx.Done()
+		_ = server.Shutdown(context.Background())
+	}()
 	log.Printf("CertHarbor listening on %s", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, httpapi.NewServer(cfg, httpapi.Dependencies{Store: store, Syncer: syncService}).Handler()); err != nil {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

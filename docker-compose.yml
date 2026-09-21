@@ -7,8 +7,15 @@ services:
       CERT_HARBOR_ENV: ${CERT_HARBOR_ENV:-development}
       CERT_HARBOR_DEMO: ${CERT_HARBOR_DEMO:-0}
       CERT_HARBOR_FIXTURE_PATH: ${CERT_HARBOR_FIXTURE_PATH:-examples/demo-fixture.json}
+      CERT_HARBOR_DATA_PATH: ${CERT_HARBOR_DATA_PATH:-/app/data/cert-harbor.json}
+      CERT_HARBOR_SYNC_INTERVAL: ${CERT_HARBOR_SYNC_INTERVAL:-24h}
       CERT_HARBOR_ADMIN_TOKEN: ${CERT_HARBOR_ADMIN_TOKEN:-}
       CERT_HARBOR_VIEWER_TOKEN: ${CERT_HARBOR_VIEWER_TOKEN:-}
       CERT_HARBOR_ENCRYPTION_KEY: ${CERT_HARBOR_ENCRYPTION_KEY:-}
     ports:
       - "${CERT_HARBOR_PORT:-8080}:8080"
+    volumes:
+      - cert_harbor_data:/app/data
+
+volumes:
+  cert_harbor_data:

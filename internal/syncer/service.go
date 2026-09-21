@@ -57,7 +57,13 @@ func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRu
 		certificates[i].LastSeenAt = started
 		certificates[i].Stale = false
 	}
-	s.store.ReplaceAssets(connection.ID, started, domains, certificates)
+	if err := s.store.ReplaceAssets(connection.ID, started, domains, certificates); err != nil {
+		failed, finishErr := s.store.FinishSync(run.ID, false, s.now(), 0, 0, fmt.Errorf("persist catalog: %w", err).Error())
+		if finishErr != nil {
+			return catalog.SyncRun{}, finishErr
+		}
+		return failed, err
+	}
 	return s.store.FinishSync(run.ID, true, s.now(), len(domains), len(certificates), "")
 }
 

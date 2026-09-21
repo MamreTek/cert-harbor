@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
 	"github.com/MamreTek/cert-harbor/internal/providers"
@@ -44,6 +46,68 @@ func TestReadinessRejectsIncompleteProductionConfig(t *testing.T) {
 	}
 }
 
+func TestViewerCanReadButCannotMutate(t *testing.T) {
+	server := NewServer(config.Config{Env: "production", AdminToken: "admin-secret", ViewerToken: "viewer-secret", EncryptionKey: "encryption-key"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated read status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	request.Header.Set("Authorization", "Bearer viewer-secret")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("viewer read status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/monitor/evaluate", nil)
+	request.Header.Set("X-CertHarbor-Token", "viewer-secret")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("viewer mutation status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/monitor/evaluate", nil)
+	request.Header.Set("X-CertHarbor-Token", "admin-secret")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("administrator mutation status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
+func TestConnectionCredentialsAreEncryptedAndNeverReturned(t *testing.T) {
+	server := NewServer(config.Config{Env: "development", EncryptionKey: "test-encryption-key"})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections", strings.NewReader(`{"name":"Cloudflare Production","provider":"cloudflare","credentials":{"token":"provider-secret"}}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create connection status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "provider-secret") || !strings.Contains(response.Body.String(), "credentials_stored") {
+		t.Fatalf("connection response exposed credentials: %s", response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/provider-connections", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "provider-secret") {
+		t.Fatalf("connection listing exposed credentials: %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/provider-connections/cloudflare-production", strings.NewReader(`{"enabled":false}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"enabled":false`) {
+		t.Fatalf("disable connection response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestSyncAndInventoryEndpoints(t *testing.T) {
 	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
 	store := catalog.NewStore()
@@ -61,6 +125,7 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 	server := NewServer(config.Config{Env: "development", FixturePath: fixture}, Dependencies{
 		Store:  store,
 		Syncer: syncer.New(store, registry.New(fixture)),
+		Alerts: alerting.NewEngine(store),
 	})
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections/demo-cloudflare/sync", nil)
@@ -87,10 +152,24 @@ func TestSyncAndInventoryEndpoints(t *testing.T) {
 		t.Fatalf("unexpected domain response: %#v", body)
 	}
 
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/export/certificates.csv?provider=cloudflare", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Type"), "text/csv") || !strings.Contains(response.Body.String(), "cert-demo-example") {
+		t.Fatalf("certificate export response = %d %s", response.Code, response.Body.String())
+	}
+
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections/demo-cloudflare/test", nil)
 	response = httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Body.String() == "" {
 		t.Fatalf("test connection response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/monitor/evaluate", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "expiring") {
+		t.Fatalf("evaluate alerts response = %d %s", response.Code, response.Body.String())
 	}
 }

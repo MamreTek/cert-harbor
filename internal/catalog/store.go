@@ -12,16 +12,18 @@ import (
 )
 
 type Connection struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Provider      providers.Provider     `json:"provider"`
-	Enabled       bool                   `json:"enabled"`
-	Source        string                 `json:"source"`
-	FixturePath   string                 `json:"-"`
-	Capabilities  providers.Capabilities `json:"capabilities"`
-	Status        string                 `json:"status"`
-	LastSyncAt    *time.Time             `json:"last_sync_at,omitempty"`
-	LastSyncError string                 `json:"last_sync_error,omitempty"`
+	ID                    string                 `json:"id"`
+	Name                  string                 `json:"name"`
+	Provider              providers.Provider     `json:"provider"`
+	Enabled               bool                   `json:"enabled"`
+	Source                string                 `json:"source"`
+	FixturePath           string                 `json:"-"`
+	Capabilities          providers.Capabilities `json:"capabilities"`
+	Status                string                 `json:"status"`
+	LastSyncAt            *time.Time             `json:"last_sync_at,omitempty"`
+	LastSyncError         string                 `json:"last_sync_error,omitempty"`
+	CredentialsStored     bool                   `json:"credentials_stored"`
+	CredentialsCiphertext string                 `json:"-"`
 }
 
 type SyncRun struct {
@@ -52,6 +54,7 @@ type Store struct {
 	connections  map[string]Connection
 	syncRuns     []SyncRun
 	active       map[string]bool
+	filePath     string
 }
 
 func NewStore() *Store {
@@ -76,7 +79,7 @@ func (s *Store) AddConnection(connection Connection) error {
 		connection.Status = "pending"
 	}
 	s.connections[connection.ID] = connection
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) GetConnection(id string) (Connection, bool) {
@@ -84,6 +87,57 @@ func (s *Store) GetConnection(id string) (Connection, bool) {
 	defer s.mu.RUnlock()
 	connection, ok := s.connections[id]
 	return connection, ok
+}
+
+func (s *Store) UpdateConnection(id, name string, enabled bool) (Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	connection, ok := s.connections[id]
+	if !ok {
+		return Connection{}, errors.New("connection not found")
+	}
+	if name != "" {
+		connection.Name = name
+	}
+	connection.Enabled = enabled
+	s.connections[id] = connection
+	if err := s.persistLocked(); err != nil {
+		return Connection{}, err
+	}
+	return connection, nil
+}
+
+func (s *Store) DeleteConnection(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.connections[id]; !ok {
+		return errors.New("connection not found")
+	}
+	delete(s.connections, id)
+	for assetID, item := range s.domains {
+		if item.ConnectionID == id {
+			delete(s.domains, assetID)
+		}
+	}
+	for assetID, item := range s.certificates {
+		if item.ConnectionID == id {
+			delete(s.certificates, assetID)
+		}
+	}
+	return s.persistLocked()
+}
+
+func (s *Store) SetCredentials(id, ciphertext string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	connection, ok := s.connections[id]
+	if !ok {
+		return errors.New("connection not found")
+	}
+	connection.CredentialsCiphertext = ciphertext
+	connection.CredentialsStored = ciphertext != ""
+	s.connections[id] = connection
+	return s.persistLocked()
 }
 
 func (s *Store) ListConnections() []Connection {
@@ -123,6 +177,10 @@ func (s *Store) BeginSync(connectionID string, provider providers.Provider, now 
 		CorrelationID: "corr-" + now.Format("20060102T150405.000000000Z"),
 	}
 	s.syncRuns = append(s.syncRuns, run)
+	if err := s.persistLocked(); err != nil {
+		s.active[connectionID] = false
+		return SyncRun{}, err
+	}
 	return run, nil
 }
 
@@ -151,12 +209,15 @@ func (s *Store) FinishSync(runID string, success bool, now time.Time, domains, c
 		}
 		s.connections[run.ConnectionID] = connection
 		s.active[run.ConnectionID] = false
+		if err := s.persistLocked(); err != nil {
+			return SyncRun{}, err
+		}
 		return *run, nil
 	}
 	return SyncRun{}, errors.New("sync run not found")
 }
 
-func (s *Store) ReplaceAssets(connectionID string, syncedAt time.Time, domains []domain.Domain, certificates []domain.Certificate) {
+func (s *Store) ReplaceAssets(connectionID string, syncedAt time.Time, domains []domain.Domain, certificates []domain.Certificate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	domainIDs := make(map[string]bool, len(domains))
@@ -182,6 +243,7 @@ func (s *Store) ReplaceAssets(connectionID string, syncedAt time.Time, domains [
 		}
 	}
 	_ = syncedAt
+	return s.persistLocked()
 }
 
 func (s *Store) ListDomains(filter Filter) ([]domain.Domain, int) {
