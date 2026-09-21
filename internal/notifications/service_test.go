@@ -108,6 +108,20 @@ func TestDispatchDeduplicatesDeliveredAlertState(t *testing.T) {
 	}
 }
 
+func TestSetSigningSecretPreservesCredentialState(t *testing.T) {
+	service := NewService(nil)
+	if err := service.AddChannel(Channel{ID: "email", Name: "Email", Kind: KindEmail, Endpoint: "smtp://example.test", CredentialsCiphertext: "existing", CredentialsStored: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetSigningSecret("email", ""); err != nil {
+		t.Fatal(err)
+	}
+	channels := service.Channels()
+	if len(channels) != 1 || !channels[0].CredentialsStored {
+		t.Fatalf("credential state was lost when clearing signing secret: %#v", channels)
+	}
+}
+
 func TestConcurrentOutboxDrainsDoNotDuplicateDelivery(t *testing.T) {
 	box, err := security.NewSecretBox("notification-key")
 	if err != nil {

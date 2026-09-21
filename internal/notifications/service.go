@@ -231,7 +231,7 @@ func (s *Service) SetSigningSecret(id, ciphertext string) error {
 		return errors.New("notification channel not found")
 	}
 	channel.SigningSecretCiphertext = ciphertext
-	channel.CredentialsStored = ciphertext != ""
+	channel.CredentialsStored = ciphertext != "" || channel.CredentialsCiphertext != ""
 	s.channels[id] = channel
 	return s.persistLocked()
 }
