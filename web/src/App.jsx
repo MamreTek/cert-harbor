@@ -35,6 +35,10 @@ export function App({ fetcher = defaultFetcher }) {
   const [connections, setConnections] = useState([])
   const [domains, setDomains] = useState([])
   const [certificates, setCertificates] = useState([])
+  const [domainPage, setDomainPage] = useState(1)
+  const [certificatePage, setCertificatePage] = useState(1)
+  const [domainTotal, setDomainTotal] = useState(0)
+  const [certificateTotal, setCertificateTotal] = useState(0)
   const [alerts, setAlerts] = useState([])
   const [rules, setRules] = useState([])
   const [members, setMembers] = useState([])
@@ -74,8 +78,8 @@ export function App({ fetcher = defaultFetcher }) {
       const responses = await Promise.all([
         requester('/api/v1/catalog/summary'),
         requester('/api/v1/provider-connections?page=1&page_size=50'),
-        requester(`/api/v1/domains?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
-        requester(`/api/v1/certificates?page=1&page_size=50${filterQuery ? `&${filterQuery}` : ''}`),
+        requester(`/api/v1/domains?page=${domainPage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
+        requester(`/api/v1/certificates?page=${certificatePage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
         requester('/api/v1/alerts'),
         requester('/api/v1/alert-rules?page=1&page_size=50'),
         requester('/api/v1/members?page=1&page_size=50'),
@@ -89,6 +93,8 @@ export function App({ fetcher = defaultFetcher }) {
       setConnections(nextConnections.items ?? [])
       setDomains(nextDomains.items ?? [])
       setCertificates(nextCertificates.items ?? [])
+      setDomainTotal(nextDomains.total ?? nextDomains.items?.length ?? 0)
+      setCertificateTotal(nextCertificates.total ?? nextCertificates.items?.length ?? 0)
       setAlerts(nextAlerts.items ?? [])
       setRules(nextRules.items ?? [])
       setMembers(nextMembers.items ?? [])
@@ -100,7 +106,12 @@ export function App({ fetcher = defaultFetcher }) {
     } finally {
       setLoading(false)
     }
-  }, [fetcher, filterQuery, requester])
+  }, [certificatePage, domainPage, fetcher, filterQuery, requester])
+
+  useEffect(() => {
+    setDomainPage(1)
+    setCertificatePage(1)
+  }, [filterQuery])
 
   useEffect(() => {
     loadInventory()
@@ -284,7 +295,7 @@ export function App({ fetcher = defaultFetcher }) {
   </>
 
   const renderDomains = () => <Card title="Domains" extra={renderInventoryFilters()}>
-    <Table rowKey="id" dataSource={domains} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No domains synchronized yet' }} columns={[
+    <Table rowKey="id" dataSource={domains} pagination={{ current: domainPage, pageSize: 20, total: domainTotal, showSizeChanger: false, onChange: setDomainPage }} locale={{ emptyText: 'No domains synchronized yet' }} columns={[
       { title: 'Domain', dataIndex: 'name', key: 'name' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
@@ -297,7 +308,7 @@ export function App({ fetcher = defaultFetcher }) {
   </Card>
 
   const renderCertificates = () => <Card title="Certificates" extra={renderInventoryFilters()}>
-    <Table rowKey="id" dataSource={certificates} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No certificates synchronized yet' }} columns={[
+    <Table rowKey="id" dataSource={certificates} pagination={{ current: certificatePage, pageSize: 20, total: certificateTotal, showSizeChanger: false, onChange: setCertificatePage }} locale={{ emptyText: 'No certificates synchronized yet' }} columns={[
       { title: 'Common name', dataIndex: 'common_name', key: 'common_name' },
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },
       { title: 'Status', dataIndex: 'status', key: 'status', render: (value) => value || 'Unknown' },
