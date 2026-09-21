@@ -40,6 +40,8 @@ export function App({ fetcher = defaultFetcher }) {
   const [domainTotal, setDomainTotal] = useState(0)
   const [certificateTotal, setCertificateTotal] = useState(0)
   const [alerts, setAlerts] = useState([])
+  const [alertPage, setAlertPage] = useState(1)
+  const [alertTotal, setAlertTotal] = useState(0)
   const [rules, setRules] = useState([])
   const [members, setMembers] = useState([])
   const [channels, setChannels] = useState([])
@@ -88,7 +90,7 @@ export function App({ fetcher = defaultFetcher }) {
         requester('/api/v1/provider-connections?page=1&page_size=50'),
         requester(`/api/v1/domains?page=${domainPage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
         requester(`/api/v1/certificates?page=${certificatePage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
-        requester('/api/v1/alerts'),
+        requester(`/api/v1/alerts?page=${alertPage}&page_size=20`),
         requester('/api/v1/alert-rules?page=1&page_size=50'),
         requester('/api/v1/members?page=1&page_size=50'),
         requester('/api/v1/notification-channels?page=1&page_size=50'),
@@ -105,6 +107,7 @@ export function App({ fetcher = defaultFetcher }) {
       setDomainTotal(nextDomains.total ?? nextDomains.items?.length ?? 0)
       setCertificateTotal(nextCertificates.total ?? nextCertificates.items?.length ?? 0)
       setAlerts(nextAlerts.items ?? [])
+      setAlertTotal(nextAlerts.total ?? nextAlerts.items?.length ?? 0)
       setRules(nextRules.items ?? [])
       setMembers(nextMembers.items ?? [])
       setChannels(nextChannels.items ?? [])
@@ -117,7 +120,7 @@ export function App({ fetcher = defaultFetcher }) {
     } finally {
       setLoading(false)
     }
-  }, [certificatePage, deliveryPage, domainPage, fetcher, filterQuery, requester])
+  }, [alertPage, certificatePage, deliveryPage, domainPage, fetcher, filterQuery, requester])
 
   useEffect(() => {
     setDomainPage(1)
@@ -349,7 +352,7 @@ export function App({ fetcher = defaultFetcher }) {
   </Card>
 
   const renderAlerts = () => <Card title="Alerts">
-    <Table rowKey="id" dataSource={alerts} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No alerts' }} columns={[
+    <Table rowKey="id" dataSource={alerts} pagination={{ current: alertPage, pageSize: 20, total: alertTotal, showSizeChanger: false, onChange: setAlertPage }} locale={{ emptyText: 'No alerts' }} columns={[
       { title: 'Asset', dataIndex: 'asset_name', key: 'asset_name' },
       { title: 'Type', dataIndex: 'asset_kind', key: 'asset_kind' },
       { title: 'State', dataIndex: 'state', key: 'state', render: (value) => <Tag color={value === 'open' ? 'red' : value === 'acknowledged' ? 'gold' : 'green'}>{value}</Tag> },
