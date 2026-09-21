@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,8 @@ type Config struct {
 	ViewerToken   string
 	EncryptionKey string
 	WebDir        string
+	Demo          bool
+	FixturePath   string
 }
 
 func FromEnv() Config {
@@ -23,6 +26,8 @@ func FromEnv() Config {
 		ViewerToken:   os.Getenv("CERT_HARBOR_VIEWER_TOKEN"),
 		EncryptionKey: os.Getenv("CERT_HARBOR_ENCRYPTION_KEY"),
 		WebDir:        valueOrDefault("CERT_HARBOR_WEB_DIR", "web/dist"),
+		Demo:          boolFromEnv("CERT_HARBOR_DEMO"),
+		FixturePath:   valueOrDefault("CERT_HARBOR_FIXTURE_PATH", "examples/demo-fixture.json"),
 	}
 }
 
@@ -44,4 +49,9 @@ func valueOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func boolFromEnv(name string) bool {
+	value, _ := strconv.ParseBool(os.Getenv(name))
+	return value
 }

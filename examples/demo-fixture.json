@@ -1,0 +1,34 @@
+{
+  "domains": [
+    {
+      "source_id": "zone-demo-example",
+      "name": "example.com",
+      "registrable_domain": "example.com",
+      "zone": "example.com",
+      "registrar": "Cloudflare Registrar",
+      "status": "active",
+      "nameservers": ["lara.ns.cloudflare.com", "noah.ns.cloudflare.com"],
+      "expires_at": "2027-01-15T00:00:00Z",
+      "owner": "platform",
+      "environment": "production",
+      "tags": ["demo", "public"],
+      "source_url": "https://dash.cloudflare.com/"
+    }
+  ],
+  "certificates": [
+    {
+      "source_id": "cert-demo-example",
+      "common_name": "example.com",
+      "sans": ["example.com", "www.example.com"],
+      "issuer": "Let's Encrypt",
+      "serial_number": "demo-serial-001",
+      "fingerprint": "sha256:demo",
+      "valid_from": "2026-09-01T00:00:00Z",
+      "valid_to": "2026-10-03T00:00:00Z",
+      "owner": "platform",
+      "environment": "production",
+      "tags": ["demo", "edge"],
+      "source_url": "https://dash.cloudflare.com/"
+    }
+  ]
+}

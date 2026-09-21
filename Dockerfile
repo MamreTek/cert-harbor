@@ -10,11 +10,14 @@ WORKDIR /src
 COPY go.mod ./
 COPY cmd ./cmd
 COPY internal ./internal
+COPY examples ./examples
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/cert-harbor ./cmd/cert-harbor
 
 FROM alpine:3.22
 RUN addgroup -S certharbor && adduser -S -G certharbor certharbor
+WORKDIR /app
 COPY --from=api-build /out/cert-harbor /app/cert-harbor
+COPY --from=api-build /src/examples /app/examples
 COPY --from=web-build /src/web/dist /app/web
 RUN chown -R certharbor:certharbor /app
 USER certharbor

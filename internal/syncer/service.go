@@ -1,0 +1,103 @@
+package syncer
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/MamreTek/cert-harbor/internal/catalog"
+	"github.com/MamreTek/cert-harbor/internal/domain"
+	"github.com/MamreTek/cert-harbor/internal/providers"
+)
+
+type Service struct {
+	store    *catalog.Store
+	adapters map[providers.Provider]providers.Adapter
+	now      func() time.Time
+}
+
+func New(store *catalog.Store, adapters map[providers.Provider]providers.Adapter) *Service {
+	return &Service{store: store, adapters: adapters, now: func() time.Time { return time.Now().UTC() }}
+}
+
+func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRun, error) {
+	connection, ok := s.store.GetConnection(connectionID)
+	if !ok {
+		return catalog.SyncRun{}, fmt.Errorf("connection %q not found", connectionID)
+	}
+	adapter, ok := s.adapters[connection.Provider]
+	if !ok {
+		return catalog.SyncRun{}, fmt.Errorf("provider adapter %q is not configured", connection.Provider)
+	}
+	started := s.now()
+	run, err := s.store.BeginSync(connection.ID, connection.Provider, started)
+	if err != nil {
+		return catalog.SyncRun{}, err
+	}
+
+	domains, certificates, err := s.collect(ctx, adapter, connection)
+	if err != nil {
+		failed, finishErr := s.store.FinishSync(run.ID, false, s.now(), 0, 0, err.Error())
+		if finishErr != nil {
+			return catalog.SyncRun{}, finishErr
+		}
+		return failed, err
+	}
+	for i := range domains {
+		domains[i].ID = connection.ID + ":domain:" + domains[i].SourceID
+		domains[i].ConnectionID = connection.ID
+		domains[i].Provider = string(connection.Provider)
+		domains[i].LastSeenAt = started
+		domains[i].Stale = false
+	}
+	for i := range certificates {
+		certificates[i].ID = connection.ID + ":certificate:" + certificates[i].SourceID
+		certificates[i].ConnectionID = connection.ID
+		certificates[i].Provider = string(connection.Provider)
+		certificates[i].LastSeenAt = started
+		certificates[i].Stale = false
+	}
+	s.store.ReplaceAssets(connection.ID, started, domains, certificates)
+	return s.store.FinishSync(run.ID, true, s.now(), len(domains), len(certificates), "")
+}
+
+func (s *Service) Test(ctx context.Context, connectionID string) (providers.TestResult, error) {
+	connection, ok := s.store.GetConnection(connectionID)
+	if !ok {
+		return providers.TestResult{}, fmt.Errorf("connection %q not found", connectionID)
+	}
+	adapter, ok := s.adapters[connection.Provider]
+	if !ok {
+		return providers.TestResult{}, fmt.Errorf("provider adapter %q is not configured", connection.Provider)
+	}
+	return adapter.Test(ctx, providers.Credentials{})
+}
+
+func (s *Service) collect(ctx context.Context, adapter providers.Adapter, connection catalog.Connection) ([]domain.Domain, []domain.Certificate, error) {
+	credentials := providers.Credentials{}
+	var domains []domain.Domain
+	for cursor := ""; ; {
+		page, err := adapter.ListDomains(ctx, credentials, cursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list domains: %w", err)
+		}
+		domains = append(domains, page.Items...)
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	var certificates []domain.Certificate
+	for cursor := ""; ; {
+		page, err := adapter.ListCertificates(ctx, credentials, cursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list certificates: %w", err)
+		}
+		certificates = append(certificates, page.Items...)
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	return domains, certificates, nil
+}

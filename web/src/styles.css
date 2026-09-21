@@ -14,6 +14,8 @@ body { margin: 0; }
 .page-heading { margin-bottom: 24px; }
 .page-heading h2 { margin-bottom: 4px; }
 .inventory-card { margin-top: 24px; }
+.page-alert { margin-bottom: 24px; }
+.loading-state { align-items: center; display: flex; justify-content: center; min-height: 240px; }
 
 @media (max-width: 768px) {
   .app-content { padding: 20px 16px; }

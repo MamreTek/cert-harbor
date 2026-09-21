@@ -4,7 +4,13 @@ import { App } from './App'
 
 describe('CertHarbor console', () => {
   it('renders the inventory foundation', async () => {
-    render(<App />)
+    const fetcher = async (url) => ({
+      ok: true,
+      json: async () => url.includes('summary')
+        ? { domains: 0, certificates: 0, connections: 0, stale_assets: 0 }
+        : { items: [] },
+    })
+    render(<App fetcher={fetcher} />)
     await waitFor(() => {
       expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument()
       expect(screen.getByText('Inventory')).toBeInTheDocument()
