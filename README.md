@@ -46,6 +46,7 @@ The scheduler runs enabled connections once per configured interval (daily by de
 The inventory API currently provides:
 
 - `GET /api/v1/provider-connections`
+- `POST/PATCH/DELETE /api/v1/provider-connections` and connection test/sync actions
 - `POST /api/v1/provider-connections/{id}/test`
 - `POST /api/v1/provider-connections/{id}/sync`
 - `GET /api/v1/domains` and `GET /api/v1/certificates` with `search`, `provider`, `stale`, `page`, and `page_size` filters
@@ -53,6 +54,10 @@ The inventory API currently provides:
 - `GET /api/v1/sync-runs` and `GET /api/v1/catalog/summary`
 - `GET /api/v1/alerts`, `GET /api/v1/alert-events`, and `GET /api/v1/alert-rules`
 - `POST /api/v1/monitor/evaluate` plus alert `acknowledge`, `resolve`, and `suppress` actions
+- `GET /api/v1/audit-events` with stable page/page-size pagination
+- `GET/POST/PATCH/DELETE /api/v1/notification-channels`, channel test, alert notify, and `GET /api/v1/notification-deliveries`
+
+Provider credentials and webhook signing secrets are encrypted with the configured application key, omitted from API responses, and excluded from audit records. The catalog snapshot is written atomically to `CERT_HARBOR_DATA_PATH` (the Compose deployment persists it in the `cert_harbor_data` volume). The current adapters use the bundled fixture contract; live provider API clients and SMTP delivery remain follow-up implementation work.
 
 Production mode requires `CERT_HARBOR_ENCRYPTION_KEY`, `CERT_HARBOR_ADMIN_TOKEN`, and `CERT_HARBOR_VIEWER_TOKEN`. Copy `.env.example` to `.env` for local configuration; never commit real secrets.
 

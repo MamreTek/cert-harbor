@@ -46,6 +46,7 @@ func OpenStore(path string) (*Store, error) {
 		Certificates map[string]domain.Certificate  `json:"certificates"`
 		Connections  map[string]persistedConnection `json:"connections"`
 		SyncRuns     []SyncRun                      `json:"sync_runs"`
+		AuditEvents  []AuditEvent                   `json:"audit_events"`
 	}
 	if err := json.Unmarshal(data, &snapshot); err != nil {
 		return nil, err
@@ -65,6 +66,7 @@ func OpenStore(path string) (*Store, error) {
 		}
 	}
 	store.syncRuns = snapshot.SyncRuns
+	store.auditEvents = snapshot.AuditEvents
 	return store, nil
 }
 
@@ -81,7 +83,8 @@ func (s *Store) persistLocked() error {
 		Certificates map[string]domain.Certificate  `json:"certificates"`
 		Connections  map[string]persistedConnection `json:"connections"`
 		SyncRuns     []SyncRun                      `json:"sync_runs"`
-	}{Version: 1, Domains: s.domains, Certificates: s.certificates, Connections: make(map[string]persistedConnection, len(s.connections)), SyncRuns: s.syncRuns}
+		AuditEvents  []AuditEvent                   `json:"audit_events"`
+	}{Version: 1, Domains: s.domains, Certificates: s.certificates, Connections: make(map[string]persistedConnection, len(s.connections)), SyncRuns: s.syncRuns, AuditEvents: s.auditEvents}
 	for id, connection := range s.connections {
 		snapshot.Connections[id] = persistedConnection{
 			ID: connection.ID, Name: connection.Name, Provider: connection.Provider, Enabled: connection.Enabled,

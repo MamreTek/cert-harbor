@@ -15,6 +15,7 @@ import (
 	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
+	"github.com/MamreTek/cert-harbor/internal/notifications"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
 	"github.com/MamreTek/cert-harbor/internal/security"
@@ -22,19 +23,21 @@ import (
 )
 
 type Server struct {
-	config  config.Config
-	store   *catalog.Store
-	syncer  *syncer.Service
-	alerts  *alerting.Engine
-	secrets *security.SecretBox
-	mux     *http.ServeMux
+	config        config.Config
+	store         *catalog.Store
+	syncer        *syncer.Service
+	alerts        *alerting.Engine
+	secrets       *security.SecretBox
+	notifications *notifications.Service
+	mux           *http.ServeMux
 }
 
 type Dependencies struct {
-	Store   *catalog.Store
-	Syncer  *syncer.Service
-	Alerts  *alerting.Engine
-	Secrets *security.SecretBox
+	Store         *catalog.Store
+	Syncer        *syncer.Service
+	Alerts        *alerting.Engine
+	Secrets       *security.SecretBox
+	Notifications *notifications.Service
 }
 
 type role string
@@ -61,7 +64,10 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	if deps.Secrets == nil && cfg.EncryptionKey != "" {
 		deps.Secrets, _ = security.NewSecretBox(cfg.EncryptionKey)
 	}
-	s := &Server{config: cfg, store: deps.Store, syncer: deps.Syncer, alerts: deps.Alerts, secrets: deps.Secrets, mux: http.NewServeMux()}
+	if deps.Notifications == nil {
+		deps.Notifications = notifications.NewService(deps.Secrets)
+	}
+	s := &Server{config: cfg, store: deps.Store, syncer: deps.Syncer, alerts: deps.Alerts, secrets: deps.Secrets, notifications: deps.Notifications, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.HandleFunc("GET /api/v1/meta", s.meta)
@@ -77,6 +83,7 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("GET /api/v1/export/domains.csv", s.exportDomains)
 	s.mux.HandleFunc("GET /api/v1/export/certificates.csv", s.exportCertificates)
 	s.mux.HandleFunc("GET /api/v1/sync-runs", s.syncRuns)
+	s.mux.HandleFunc("GET /api/v1/audit-events", s.auditEvents)
 	s.mux.HandleFunc("GET /api/v1/alerts", s.alertList)
 	s.mux.HandleFunc("GET /api/v1/alert-rules", s.alertRules)
 	s.mux.HandleFunc("GET /api/v1/alert-events", s.alertEvents)
@@ -84,6 +91,13 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("POST /api/v1/alerts/{id}/acknowledge", s.acknowledgeAlert)
 	s.mux.HandleFunc("POST /api/v1/alerts/{id}/resolve", s.resolveAlert)
 	s.mux.HandleFunc("POST /api/v1/alerts/{id}/suppress", s.suppressAlert)
+	s.mux.HandleFunc("POST /api/v1/alerts/{id}/notify", s.notifyAlert)
+	s.mux.HandleFunc("GET /api/v1/notification-channels", s.notificationChannels)
+	s.mux.HandleFunc("POST /api/v1/notification-channels", s.createNotificationChannel)
+	s.mux.HandleFunc("PATCH /api/v1/notification-channels/{id}", s.updateNotificationChannel)
+	s.mux.HandleFunc("DELETE /api/v1/notification-channels/{id}", s.deleteNotificationChannel)
+	s.mux.HandleFunc("POST /api/v1/notification-channels/{id}/test", s.testNotificationChannel)
+	s.mux.HandleFunc("GET /api/v1/notification-deliveries", s.notificationDeliveries)
 	s.mux.HandleFunc("/", s.web)
 	return s
 }
@@ -223,6 +237,10 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	connection, _ = s.store.GetConnection(request.ID)
+	if err := s.audit(r, "provider_connection.create", "provider_connection", request.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "connection created but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusCreated, connection)
 }
 
@@ -262,12 +280,20 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 		}
 		connection, _ = s.store.GetConnection(current.ID)
 	}
+	if err := s.audit(r, "provider_connection.update", "provider_connection", current.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "connection updated but audit event could not be recorded"})
+		return
+	}
 	writeJSON(w, http.StatusOK, connection)
 }
 
 func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteConnection(r.PathValue("id")); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.audit(r, "provider_connection.delete", "provider_connection", r.PathValue("id"), "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "connection deleted but audit event could not be recorded"})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -289,15 +315,18 @@ func slug(value string) string {
 func (s *Server) testConnection(w http.ResponseWriter, r *http.Request) {
 	result, err := s.syncer.Test(r.Context(), r.PathValue("id"))
 	if err != nil {
+		_ = s.audit(r, "provider_connection.test", "provider_connection", r.PathValue("id"), "failed")
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
+	_ = s.audit(r, "provider_connection.test", "provider_connection", r.PathValue("id"), "succeeded")
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 	run, err := s.syncer.Sync(r.Context(), r.PathValue("id"))
 	if err != nil {
+		_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "failed")
 		status := http.StatusUnprocessableEntity
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -306,6 +335,7 @@ func (s *Server) syncConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.alerts.Evaluate()
+	_ = s.audit(r, "sync.run", "provider_connection", r.PathValue("id"), "succeeded")
 	writeJSON(w, http.StatusOK, run)
 }
 
@@ -355,6 +385,22 @@ func (s *Server) syncRuns(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.store.ListSyncRuns()})
 }
 
+func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request) {
+	allItems := s.store.ListAuditEvents()
+	pageNumber := page(r)
+	pageLimit := pageSize(r)
+	start := (pageNumber - 1) * pageLimit
+	items := []catalog.AuditEvent{}
+	if start < len(allItems) {
+		end := start + pageLimit
+		if end > len(allItems) {
+			end = len(allItems)
+		}
+		items = allItems[start:end]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
+}
+
 func (s *Server) alertList(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Alerts()})
 }
@@ -367,8 +413,10 @@ func (s *Server) alertEvents(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Events()})
 }
 
-func (s *Server) evaluateAlerts(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.alerts.Evaluate()})
+func (s *Server) evaluateAlerts(w http.ResponseWriter, r *http.Request) {
+	items := s.alerts.Evaluate()
+	_ = s.audit(r, "alert.evaluate", "monitor", "default", "succeeded")
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +447,177 @@ func (s *Server) transitionAlert(w http.ResponseWriter, r *http.Request, state s
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
 		return
 	}
+	_ = s.audit(r, "alert."+state, "alert", alert.ID, "succeeded")
 	writeJSON(w, http.StatusOK, alert)
+}
+
+type notificationRequest struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Endpoint      string `json:"endpoint"`
+	Enabled       *bool  `json:"enabled"`
+	SigningSecret string `json:"signing_secret"`
+}
+
+func (s *Server) notificationChannels(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.notifications.Channels()})
+}
+
+func (s *Server) createNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	var request notificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid notification channel request"})
+		return
+	}
+	if request.ID == "" {
+		request.ID = slug(request.Name)
+	}
+	enabled := true
+	if request.Enabled != nil {
+		enabled = *request.Enabled
+	}
+	channel := notifications.Channel{ID: request.ID, Name: request.Name, Kind: request.Kind, Endpoint: request.Endpoint, Enabled: enabled}
+	if err := s.notifications.AddChannel(channel); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if request.SigningSecret != "" {
+		if s.secrets == nil {
+			_ = s.notifications.DeleteChannel(request.ID)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "encryption key is required for signing secrets"})
+			return
+		}
+		ciphertext, err := s.secrets.Encrypt([]byte(request.SigningSecret))
+		if err != nil {
+			_ = s.notifications.DeleteChannel(request.ID)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encrypt signing secret"})
+			return
+		}
+		if err := s.notifications.SetSigningSecret(request.ID, ciphertext); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save signing secret"})
+			return
+		}
+	}
+	for _, item := range s.notifications.Channels() {
+		if item.ID == request.ID {
+			_ = s.audit(r, "notification_channel.create", "notification_channel", request.ID, "succeeded")
+			writeJSON(w, http.StatusCreated, item)
+			return
+		}
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "channel was not created"})
+}
+
+func (s *Server) updateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	var request notificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid notification channel request"})
+		return
+	}
+	current := s.notifications.Channels()
+	var existing notifications.Channel
+	for _, item := range current {
+		if item.ID == r.PathValue("id") {
+			existing = item
+			break
+		}
+	}
+	if existing.ID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notification channel not found"})
+		return
+	}
+	enabled := existing.Enabled
+	if request.Enabled != nil {
+		enabled = *request.Enabled
+	}
+	channel, err := s.notifications.UpdateChannel(existing.ID, request.Name, request.Endpoint, enabled)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if request.SigningSecret != "" {
+		if s.secrets == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "encryption key is required for signing secrets"})
+			return
+		}
+		ciphertext, encryptErr := s.secrets.Encrypt([]byte(request.SigningSecret))
+		if encryptErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encrypt signing secret"})
+			return
+		}
+		if err := s.notifications.SetSigningSecret(existing.ID, ciphertext); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not save signing secret"})
+			return
+		}
+		channel, _ = findChannel(s.notifications.Channels(), existing.ID)
+	}
+	_ = s.audit(r, "notification_channel.update", "notification_channel", existing.ID, "succeeded")
+	writeJSON(w, http.StatusOK, channel)
+}
+
+func (s *Server) deleteNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	if err := s.notifications.DeleteChannel(r.PathValue("id")); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = s.audit(r, "notification_channel.delete", "notification_channel", r.PathValue("id"), "succeeded")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) testNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	delivery, err := s.notifications.Test(r.Context(), r.PathValue("id"))
+	outcome := "succeeded"
+	if err != nil {
+		outcome = "failed"
+	}
+	_ = s.audit(r, "notification_channel.test", "notification_channel", r.PathValue("id"), outcome)
+	writeJSON(w, http.StatusOK, delivery)
+}
+
+func (s *Server) notificationDeliveries(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.notifications.Deliveries()})
+}
+
+func (s *Server) notifyAlert(w http.ResponseWriter, r *http.Request) {
+	alert, ok := s.alerts.Get(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "alert not found"})
+		return
+	}
+	deliveries := s.notifications.Dispatch(r.Context(), alert)
+	for _, delivery := range deliveries {
+		_ = s.audit(r, "notification.delivery", "notification_delivery", delivery.ID, delivery.Status)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": deliveries})
+}
+
+func (s *Server) audit(r *http.Request, action, objectType, objectID, outcome string) error {
+	actor := "system"
+	if requestRole, ok := s.authenticate(r); ok {
+		actor = string(requestRole)
+	}
+	correlationID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+	if correlationID == "" {
+		correlationID = "req-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	return s.store.AppendAudit(catalog.AuditEvent{
+		Actor:         actor,
+		Action:        action,
+		ObjectType:    objectType,
+		ObjectID:      objectID,
+		Outcome:       outcome,
+		CorrelationID: correlationID,
+	})
+}
+
+func findChannel(items []notifications.Channel, id string) (notifications.Channel, bool) {
+	for _, item := range items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return notifications.Channel{}, false
 }
 
 func parseFilter(r *http.Request) catalog.Filter {

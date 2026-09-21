@@ -39,6 +39,17 @@ type SyncRun struct {
 	CorrelationID string    `json:"correlation_id"`
 }
 
+type AuditEvent struct {
+	ID            string    `json:"id"`
+	Actor         string    `json:"actor"`
+	Action        string    `json:"action"`
+	ObjectType    string    `json:"object_type"`
+	ObjectID      string    `json:"object_id"`
+	Outcome       string    `json:"outcome"`
+	CorrelationID string    `json:"correlation_id"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type Filter struct {
 	Search   string
 	Provider string
@@ -53,6 +64,7 @@ type Store struct {
 	certificates map[string]domain.Certificate
 	connections  map[string]Connection
 	syncRuns     []SyncRun
+	auditEvents  []AuditEvent
 	active       map[string]bool
 	filePath     string
 }
@@ -277,6 +289,27 @@ func (s *Store) ListSyncRuns() []SyncRun {
 	defer s.mu.RUnlock()
 	items := append([]SyncRun(nil), s.syncRuns...)
 	sort.Slice(items, func(i, j int) bool { return items[i].StartedAt.After(items[j].StartedAt) })
+	return items
+}
+
+func (s *Store) AppendAudit(event AuditEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if event.ID == "" {
+		event.ID = "audit-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	s.auditEvents = append(s.auditEvents, event)
+	return s.persistLocked()
+}
+
+func (s *Store) ListAuditEvents() []AuditEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := append([]AuditEvent(nil), s.auditEvents...)
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	return items
 }
 

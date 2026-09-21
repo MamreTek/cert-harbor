@@ -106,6 +106,37 @@ func TestConnectionCredentialsAreEncryptedAndNeverReturned(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"enabled":false`) {
 		t.Fatalf("disable connection response = %d %s", response.Code, response.Body.String())
 	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit-events?page=1&page_size=20", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "provider_connection.create") || strings.Contains(response.Body.String(), "provider-secret") {
+		t.Fatalf("audit response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestNotificationChannelAndDeliveryEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development", EncryptionKey: "test-encryption-key"})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels", strings.NewReader(`{"name":"Ops webhook","kind":"webhook","endpoint":"https://example.test/hooks","signing_secret":"notification-secret"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || strings.Contains(response.Body.String(), "notification-secret") || !strings.Contains(response.Body.String(), "credentials_stored") {
+		t.Fatalf("create notification channel response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/notification-channels", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "notification-secret") {
+		t.Fatalf("list notification channels response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit-events", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "notification_channel.create") {
+		t.Fatalf("notification audit response = %d %s", response.Code, response.Body.String())
+	}
 }
 
 func TestSyncAndInventoryEndpoints(t *testing.T) {

@@ -129,6 +129,13 @@ func (e *Engine) Alerts() []Alert {
 	return e.listAlertsLocked()
 }
 
+func (e *Engine) Get(id string) (Alert, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	alert, ok := e.alerts[id]
+	return alert, ok
+}
+
 func (e *Engine) Events() []Event {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
