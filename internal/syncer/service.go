@@ -72,6 +72,7 @@ func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRu
 		domains[i].Provider = string(connection.Provider)
 		domains[i].LastSeenAt = started
 		domains[i].Stale = false
+		domains[i].ManagedBy = "provider"
 	}
 	for i := range certificates {
 		certificates[i].ID = connection.ID + ":certificate:" + certificates[i].SourceID
@@ -79,6 +80,7 @@ func (s *Service) Sync(ctx context.Context, connectionID string) (catalog.SyncRu
 		certificates[i].Provider = string(connection.Provider)
 		certificates[i].LastSeenAt = started
 		certificates[i].Stale = false
+		certificates[i].ManagedBy = "provider"
 	}
 	if err := s.store.ReplaceAssets(connection.ID, started, domains, certificates); err != nil {
 		if s.metrics != nil {

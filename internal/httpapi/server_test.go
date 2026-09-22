@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
 	"github.com/MamreTek/cert-harbor/internal/catalog"
 	"github.com/MamreTek/cert-harbor/internal/config"
+	"github.com/MamreTek/cert-harbor/internal/domain"
 	"github.com/MamreTek/cert-harbor/internal/notifications"
 	"github.com/MamreTek/cert-harbor/internal/providers"
 	"github.com/MamreTek/cert-harbor/internal/providers/registry"
@@ -127,6 +129,53 @@ func TestConnectionCredentialsAreEncryptedAndNeverReturned(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "provider_connection.create") || strings.Contains(response.Body.String(), "provider-secret") {
 		t.Fatalf("audit response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestProviderCatalogAndManualAssetCRUD(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/providers", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "cloudflare") || !strings.Contains(response.Body.String(), "credential_guidance") {
+		t.Fatalf("provider catalog response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"manual.example","owner":"platform","tags":["local"]}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"managed_by":"manual"`) {
+		t.Fatalf("manual domain create response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/domains/manual-domain-manual-example", strings.NewReader(`{"name":"edited.example"}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "edited.example") {
+		t.Fatalf("manual domain update response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/certificates", strings.NewReader(`{"common_name":"manual.example","valid_from":"2026-01-01T00:00:00Z","valid_to":"2027-01-01T00:00:00Z","sans":["www.manual.example"]}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"managed_by":"manual"`) {
+		t.Fatalf("manual certificate create response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/domains/manual-domain-manual-example", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("manual domain delete response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/domains/provider-domain", strings.NewReader(`{"name":"blocked.example"}`))
+	response = httptest.NewRecorder()
+	server.store.ReplaceAssets("provider-1", time.Now().UTC(), []domain.Domain{{ID: "provider-domain", ConnectionID: "provider-1", ManagedBy: "provider", Name: "provider.example"}}, nil)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("provider domain mutation status = %d body = %s", response.Code, response.Body.String())
 	}
 }
 

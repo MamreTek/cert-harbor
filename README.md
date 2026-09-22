@@ -57,12 +57,14 @@ The scheduler runs enabled connections according to each connection's `sync_inte
 
 The inventory API currently provides:
 
+- `GET /api/v1/providers` for the registered cloud vendor catalog and capability guidance used by the console
 - `GET /api/v1/provider-connections`
 - `POST/PATCH/DELETE /api/v1/provider-connections` and connection test/sync actions
 - `GET /api/v1/workspace` and `GET/POST/PATCH/DELETE /api/v1/members` for the single-installation workspace boundary
 - `POST /api/v1/provider-connections/{id}/test`
 - `POST /api/v1/provider-connections/{id}/sync`
 - `GET /api/v1/domains` and `GET /api/v1/certificates` with `search`, `provider`, `owner`, `environment`, `status`, `expiry_state` (`healthy`, `expiring`, `expired`, `revoked`, `invalid`, `stale`, or `unknown`), `tag`, `stale`, `expires_before`, `expires_after`, `sort`, `order`, `page`, and `page_size` filters
+- `POST/PATCH/DELETE /api/v1/domains` and `POST/PATCH/DELETE /api/v1/certificates` for administrator-managed local inventory records. These records return `managed_by: manual` and use the `manual` provider label by default; synchronized records return `managed_by: provider` and remain read-only through these mutation endpoints.
 - `GET /api/v1/export/domains.csv` and `GET /api/v1/export/certificates.csv` for complete filtered, secret-free CSV exports (not limited by the 200-row API page size)
 - `GET /api/v1/sync-runs`, `GET /api/v1/sync-runs/{id}`, and `GET /api/v1/catalog/summary`
 - `GET/POST/PATCH/DELETE /api/v1/alert-rules`, paginated `GET /api/v1/alerts` with `state`/`provider` filters, `GET /api/v1/alerts/{id}`, and `GET /api/v1/alert-events`

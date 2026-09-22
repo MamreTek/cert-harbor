@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -92,6 +93,7 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("PATCH /api/v1/members/{id}", s.updateMember)
 	s.mux.HandleFunc("DELETE /api/v1/members/{id}", s.deleteMember)
 	s.mux.HandleFunc("GET /api/v1/catalog/summary", s.summary)
+	s.mux.HandleFunc("GET /api/v1/providers", s.providers)
 	s.mux.HandleFunc("GET /api/v1/provider-connections", s.connections)
 	s.mux.HandleFunc("POST /api/v1/provider-connections", s.createConnection)
 	s.mux.HandleFunc("PATCH /api/v1/provider-connections/{id}", s.updateConnection)
@@ -99,9 +101,15 @@ func NewServer(cfg config.Config, dependencies ...Dependencies) *Server {
 	s.mux.HandleFunc("POST /api/v1/provider-connections/{id}/test", s.testConnection)
 	s.mux.HandleFunc("POST /api/v1/provider-connections/{id}/sync", s.syncConnection)
 	s.mux.HandleFunc("GET /api/v1/domains", s.domains)
+	s.mux.HandleFunc("POST /api/v1/domains", s.createDomain)
 	s.mux.HandleFunc("GET /api/v1/domains/{id}", s.domainDetail)
+	s.mux.HandleFunc("PATCH /api/v1/domains/{id}", s.updateDomain)
+	s.mux.HandleFunc("DELETE /api/v1/domains/{id}", s.deleteDomain)
 	s.mux.HandleFunc("GET /api/v1/certificates", s.certificates)
+	s.mux.HandleFunc("POST /api/v1/certificates", s.createCertificate)
 	s.mux.HandleFunc("GET /api/v1/certificates/{id}", s.certificateDetail)
+	s.mux.HandleFunc("PATCH /api/v1/certificates/{id}", s.updateCertificate)
+	s.mux.HandleFunc("DELETE /api/v1/certificates/{id}", s.deleteCertificate)
 	s.mux.HandleFunc("GET /api/v1/export/domains.csv", s.exportDomains)
 	s.mux.HandleFunc("GET /api/v1/export/certificates.csv", s.exportCertificates)
 	s.mux.HandleFunc("GET /api/v1/sync-runs", s.syncRuns)
@@ -315,6 +323,10 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": pageItems(allItems, pageNumber, pageLimit), "total": len(allItems), "page": pageNumber, "page_size": pageLimit})
 }
 
+func (s *Server) providers(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": providers.Definitions()})
+}
+
 type connectionRequest struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
@@ -498,6 +510,186 @@ func (s *Server) domainDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+type domainRequest struct {
+	ID                string   `json:"id"`
+	Provider          string   `json:"provider"`
+	SourceID          string   `json:"source_id"`
+	Name              string   `json:"name"`
+	RegistrableDomain string   `json:"registrable_domain"`
+	Zone              string   `json:"zone"`
+	Registrar         string   `json:"registrar"`
+	Status            string   `json:"status"`
+	Nameservers       []string `json:"nameservers"`
+	ExpiresAt         string   `json:"expires_at"`
+	Owner             string   `json:"owner"`
+	Environment       string   `json:"environment"`
+	Tags              []string `json:"tags"`
+	Notes             string   `json:"notes"`
+	SourceURL         string   `json:"source_url"`
+}
+
+func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
+	var request domainRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid domain request"})
+		return
+	}
+	if request.ID == "" {
+		request.ID = "manual-domain-" + slug(request.Name)
+	}
+	item, err := buildDomain(request, domain.Domain{ID: request.ID})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.store.AddDomain(item); err != nil {
+		writeAssetError(w, err)
+		return
+	}
+	if err := s.audit(r, "domain.create", "domain", item.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "domain created but audit event could not be recorded"})
+		return
+	}
+	created, _ := s.store.GetDomain(item.ID)
+	created.ExpiryState = catalog.DeriveExpiryState(created.ExpiresAt, created.Stale)
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	current, ok := s.store.GetDomain(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "domain not found"})
+		return
+	}
+	var request domainRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid domain request"})
+		return
+	}
+	item, err := buildDomain(request, current)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	updated, err := s.store.UpdateDomain(id, item)
+	if err != nil {
+		writeAssetError(w, err)
+		return
+	}
+	if err := s.audit(r, "domain.update", "domain", id, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "domain updated but audit event could not be recorded"})
+		return
+	}
+	updated.ExpiryState = catalog.DeriveExpiryState(updated.ExpiresAt, updated.Stale)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteDomain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteDomain(id); err != nil {
+		writeAssetError(w, err)
+		return
+	}
+	if err := s.audit(r, "domain.delete", "domain", id, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "domain deleted but audit event could not be recorded"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type certificateRequest struct {
+	ID              string   `json:"id"`
+	Provider        string   `json:"provider"`
+	SourceID        string   `json:"source_id"`
+	CommonName      string   `json:"common_name"`
+	SANs            []string `json:"sans"`
+	Issuer          string   `json:"issuer"`
+	Status          string   `json:"status"`
+	SerialNumber    string   `json:"serial_number"`
+	Fingerprint     string   `json:"fingerprint"`
+	CertificateType string   `json:"certificate_type"`
+	LinkedDomains   []string `json:"linked_domains"`
+	ValidFrom       string   `json:"valid_from"`
+	ValidTo         string   `json:"valid_to"`
+	Region          string   `json:"region"`
+	Owner           string   `json:"owner"`
+	Environment     string   `json:"environment"`
+	Tags            []string `json:"tags"`
+	Notes           string   `json:"notes"`
+	SourceURL       string   `json:"source_url"`
+}
+
+func (s *Server) createCertificate(w http.ResponseWriter, r *http.Request) {
+	var request certificateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid certificate request"})
+		return
+	}
+	if request.ID == "" {
+		request.ID = "manual-certificate-" + slug(request.CommonName)
+	}
+	item, err := buildCertificate(request, domain.Certificate{ID: request.ID})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.store.AddCertificate(item); err != nil {
+		writeAssetError(w, err)
+		return
+	}
+	if err := s.audit(r, "certificate.create", "certificate", item.ID, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "certificate created but audit event could not be recorded"})
+		return
+	}
+	created, _ := s.store.GetCertificate(item.ID)
+	created.ExpiryState = catalog.DeriveCertificateExpiryState(created)
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) updateCertificate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	current, ok := s.store.GetCertificate(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "certificate not found"})
+		return
+	}
+	var request certificateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid certificate request"})
+		return
+	}
+	item, err := buildCertificate(request, current)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	updated, err := s.store.UpdateCertificate(id, item)
+	if err != nil {
+		writeAssetError(w, err)
+		return
+	}
+	if err := s.audit(r, "certificate.update", "certificate", id, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "certificate updated but audit event could not be recorded"})
+		return
+	}
+	updated.ExpiryState = catalog.DeriveCertificateExpiryState(updated)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteCertificate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteCertificate(id); err != nil {
+		writeAssetError(w, err)
+		return
+	}
+	if err := s.audit(r, "certificate.delete", "certificate", id, "succeeded"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "certificate deleted but audit event could not be recorded"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) certificates(w http.ResponseWriter, r *http.Request) {
 	items, total := s.store.ListCertificates(parseFilter(r))
 	decorateCertificates(items)
@@ -517,13 +709,13 @@ func (s *Server) certificateDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
 	items := s.store.ListDomainsForExport(filter)
-	rows := [][]string{{"id", "provider", "source_id", "name", "registrable_domain", "zone", "registrar", "status", "nameservers", "owner", "environment", "tags", "notes", "expiry_state", "expires_at", "last_seen_at", "stale", "source_url"}}
+	rows := [][]string{{"id", "managed_by", "provider", "source_id", "name", "registrable_domain", "zone", "registrar", "status", "nameservers", "owner", "environment", "tags", "notes", "expiry_state", "expires_at", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
 		expiresAt := ""
 		if item.ExpiresAt != nil {
 			expiresAt = item.ExpiresAt.UTC().Format(time.RFC3339)
 		}
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.Name, item.RegistrableDomain, item.Zone, item.Registrar, item.Status, strings.Join(item.Nameservers, ";"), item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveExpiryState(item.ExpiresAt, item.Stale), expiresAt, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.ManagedBy, item.Provider, item.SourceID, item.Name, item.RegistrableDomain, item.Zone, item.Registrar, item.Status, strings.Join(item.Nameservers, ";"), item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveExpiryState(item.ExpiresAt, item.Stale), expiresAt, item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "domains.csv", rows)
 }
@@ -531,11 +723,156 @@ func (s *Server) exportDomains(w http.ResponseWriter, r *http.Request) {
 func (s *Server) exportCertificates(w http.ResponseWriter, r *http.Request) {
 	filter := parseFilter(r)
 	items := s.store.ListCertificatesForExport(filter)
-	rows := [][]string{{"id", "provider", "source_id", "common_name", "sans", "linked_domains", "certificate_type", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "notes", "expiry_state", "last_seen_at", "stale", "source_url"}}
+	rows := [][]string{{"id", "managed_by", "provider", "source_id", "common_name", "sans", "linked_domains", "certificate_type", "issuer", "status", "serial_number", "fingerprint", "valid_from", "valid_to", "region", "owner", "environment", "tags", "notes", "expiry_state", "last_seen_at", "stale", "source_url"}}
 	for _, item := range items {
-		rows = append(rows, []string{item.ID, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), strings.Join(item.LinkedDomains, ";"), item.CertificateType, item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveCertificateExpiryState(item), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
+		rows = append(rows, []string{item.ID, item.ManagedBy, item.Provider, item.SourceID, item.CommonName, strings.Join(item.SANs, ";"), strings.Join(item.LinkedDomains, ";"), item.CertificateType, item.Issuer, item.Status, item.SerialNumber, item.Fingerprint, item.ValidFrom.UTC().Format(time.RFC3339), item.ValidTo.UTC().Format(time.RFC3339), item.Region, item.Owner, item.Environment, strings.Join(item.Tags, ";"), item.Notes, catalog.DeriveCertificateExpiryState(item), item.LastSeenAt.UTC().Format(time.RFC3339), strconv.FormatBool(item.Stale), item.SourceURL})
 	}
 	writeCSV(w, "certificates.csv", rows)
+}
+
+func buildDomain(request domainRequest, current domain.Domain) (domain.Domain, error) {
+	item := current
+	if request.ID != "" {
+		item.ID = request.ID
+	}
+	if request.Name != "" {
+		item.Name = strings.TrimSpace(request.Name)
+	}
+	if request.Provider != "" {
+		item.Provider = strings.TrimSpace(request.Provider)
+	}
+	if request.SourceID != "" {
+		item.SourceID = request.SourceID
+	}
+	if request.RegistrableDomain != "" {
+		item.RegistrableDomain = request.RegistrableDomain
+	}
+	if request.Zone != "" {
+		item.Zone = request.Zone
+	}
+	if request.Registrar != "" {
+		item.Registrar = request.Registrar
+	}
+	if request.Status != "" {
+		item.Status = request.Status
+	}
+	if request.Nameservers != nil {
+		item.Nameservers = request.Nameservers
+	}
+	if request.ExpiresAt != "" {
+		parsed, err := time.Parse(time.RFC3339, request.ExpiresAt)
+		if err != nil {
+			return domain.Domain{}, fmt.Errorf("expires_at must be RFC3339: %w", err)
+		}
+		item.ExpiresAt = &parsed
+	}
+	if request.Owner != "" {
+		item.Owner = request.Owner
+	}
+	if request.Environment != "" {
+		item.Environment = request.Environment
+	}
+	if request.Tags != nil {
+		item.Tags = request.Tags
+	}
+	if request.Notes != "" {
+		item.Notes = request.Notes
+	}
+	if request.SourceURL != "" {
+		item.SourceURL = request.SourceURL
+	}
+	if strings.TrimSpace(item.Name) == "" {
+		return domain.Domain{}, fmt.Errorf("name is required")
+	}
+	return item, nil
+}
+
+func buildCertificate(request certificateRequest, current domain.Certificate) (domain.Certificate, error) {
+	item := current
+	if request.ID != "" {
+		item.ID = request.ID
+	}
+	if request.CommonName != "" {
+		item.CommonName = strings.TrimSpace(request.CommonName)
+	}
+	if request.Provider != "" {
+		item.Provider = strings.TrimSpace(request.Provider)
+	}
+	if request.SourceID != "" {
+		item.SourceID = request.SourceID
+	}
+	if request.SANs != nil {
+		item.SANs = request.SANs
+	}
+	if request.Issuer != "" {
+		item.Issuer = request.Issuer
+	}
+	if request.Status != "" {
+		item.Status = request.Status
+	}
+	if request.SerialNumber != "" {
+		item.SerialNumber = request.SerialNumber
+	}
+	if request.Fingerprint != "" {
+		item.Fingerprint = request.Fingerprint
+	}
+	if request.CertificateType != "" {
+		item.CertificateType = request.CertificateType
+	}
+	if request.LinkedDomains != nil {
+		item.LinkedDomains = request.LinkedDomains
+	}
+	if request.ValidFrom != "" {
+		parsed, err := time.Parse(time.RFC3339, request.ValidFrom)
+		if err != nil {
+			return domain.Certificate{}, fmt.Errorf("valid_from must be RFC3339: %w", err)
+		}
+		item.ValidFrom = parsed
+	}
+	if request.ValidTo != "" {
+		parsed, err := time.Parse(time.RFC3339, request.ValidTo)
+		if err != nil {
+			return domain.Certificate{}, fmt.Errorf("valid_to must be RFC3339: %w", err)
+		}
+		item.ValidTo = parsed
+	}
+	if request.Region != "" {
+		item.Region = request.Region
+	}
+	if request.Owner != "" {
+		item.Owner = request.Owner
+	}
+	if request.Environment != "" {
+		item.Environment = request.Environment
+	}
+	if request.Tags != nil {
+		item.Tags = request.Tags
+	}
+	if request.Notes != "" {
+		item.Notes = request.Notes
+	}
+	if request.SourceURL != "" {
+		item.SourceURL = request.SourceURL
+	}
+	if strings.TrimSpace(item.CommonName) == "" {
+		return domain.Certificate{}, fmt.Errorf("common_name is required")
+	}
+	return item, nil
+}
+
+func writeAssetError(w http.ResponseWriter, err error) {
+	status := http.StatusUnprocessableEntity
+	message := err.Error()
+	if strings.Contains(message, "not found") {
+		status = http.StatusNotFound
+	}
+	if strings.Contains(message, "already exists") {
+		status = http.StatusConflict
+	}
+	if strings.Contains(message, "required") {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, map[string]string{"error": message})
 }
 
 func writeCSV(w http.ResponseWriter, filename string, rows [][]string) {

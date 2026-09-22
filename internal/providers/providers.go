@@ -21,12 +21,41 @@ const (
 )
 
 func Supported(provider Provider) bool {
-	switch provider {
-	case AlibabaCloud, Tencent, AWS, Cloudflare:
-		return true
-	default:
-		return false
+	definition, ok := DefinitionFor(provider)
+	return ok && definition.Enabled
+}
+
+// Definition is the provider catalog entry exposed to the console. Keeping
+// this metadata beside the adapter contract prevents the UI from maintaining
+// a second, potentially stale provider list.
+type Definition struct {
+	ID           Provider     `json:"id"`
+	Name         string       `json:"name"`
+	Enabled      bool         `json:"enabled"`
+	Capabilities Capabilities `json:"capabilities"`
+}
+
+var definitions = []Definition{
+	{ID: AlibabaCloud, Name: "Alibaba Cloud", Enabled: true, Capabilities: Capabilities{Provider: AlibabaCloud, Domains: true, Certificates: true, CredentialGuidance: "Alibaba Cloud RAM credentials with DNS and certificate inventory permissions", SupportedSourceTypes: []string{"dns", "certificate"}}},
+	{ID: Tencent, Name: "Tencent Cloud / DNSPod", Enabled: true, Capabilities: Capabilities{Provider: Tencent, Domains: true, Certificates: true, CredentialGuidance: "Tencent Cloud API credentials with DNSPod and certificate inventory permissions", SupportedSourceTypes: []string{"dns", "certificate"}}},
+	{ID: AWS, Name: "Amazon Web Services", Enabled: true, Capabilities: Capabilities{Provider: AWS, Domains: true, Certificates: true, CredentialGuidance: "AWS IAM credentials with Route 53 and ACM read permissions", SupportedSourceTypes: []string{"dns", "certificate"}}},
+	{ID: Cloudflare, Name: "Cloudflare", Enabled: true, Capabilities: Capabilities{Provider: Cloudflare, Domains: true, Certificates: true, CredentialGuidance: "Cloudflare API token scoped to zone and certificate read permissions", SupportedSourceTypes: []string{"dns", "certificate"}}},
+}
+
+// Definitions returns a copy so callers cannot mutate the provider registry.
+func Definitions() []Definition {
+	items := make([]Definition, len(definitions))
+	copy(items, definitions)
+	return items
+}
+
+func DefinitionFor(provider Provider) (Definition, bool) {
+	for _, definition := range definitions {
+		if definition.ID == provider {
+			return definition, true
+		}
 	}
+	return Definition{}, false
 }
 
 type Credentials struct {

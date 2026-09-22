@@ -100,4 +100,47 @@ func TestCertificateExpiryStateIncludesProviderTerminalStatus(t *testing.T) {
 	}
 }
 
+func TestManualAssetsAreDurableAndNotStaledByProviderSync(t *testing.T) {
+	store := NewStore()
+	if err := store.AddDomain(domain.Domain{ID: "manual-domain", Name: "manual.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddCertificate(domain.Certificate{ID: "manual-certificate", CommonName: "manual.example", ValidTo: time.Now().UTC().Add(90 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceAssets("provider-1", time.Now().UTC(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	manualDomain, ok := store.GetDomain("manual-domain")
+	if !ok || manualDomain.ManagedBy != "manual" || manualDomain.Stale {
+		t.Fatalf("manual domain was changed by provider sync: %#v", manualDomain)
+	}
+	manualCertificate, ok := store.GetCertificate("manual-certificate")
+	if !ok || manualCertificate.ManagedBy != "manual" || manualCertificate.Stale {
+		t.Fatalf("manual certificate was changed by provider sync: %#v", manualCertificate)
+	}
+	if _, err := store.UpdateDomain("manual-domain", domain.Domain{Name: "edited.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteCertificate("manual-certificate"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetCertificate("manual-certificate"); ok {
+		t.Fatal("manual certificate was not deleted")
+	}
+}
+
+func TestProviderManagedAssetsAreReadOnly(t *testing.T) {
+	store := NewStore()
+	if err := store.ReplaceAssets("provider-1", time.Now().UTC(), []domain.Domain{{ID: "provider-domain", ConnectionID: "provider-1", ManagedBy: "provider", Name: "provider.example"}}, []domain.Certificate{{ID: "provider-certificate", ConnectionID: "provider-1", ManagedBy: "provider", CommonName: "provider.example"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateDomain("provider-domain", domain.Domain{Name: "edited.example"}); err == nil {
+		t.Fatal("provider domain update was accepted")
+	}
+	if err := store.DeleteCertificate("provider-certificate"); err == nil {
+		t.Fatal("provider certificate deletion was accepted")
+	}
+}
+
 func timePtr(value time.Time) *time.Time { return &value }

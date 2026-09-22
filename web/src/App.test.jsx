@@ -149,4 +149,21 @@ describe('CertHarbor console', () => {
       window.history.pushState({}, '', originalPath)
     }
   })
+
+  it('creates a manual domain from the inventory page', async () => {
+    const calls = []
+    const fetcher = async (url, options = {}) => {
+      calls.push({ url, options })
+      if (url.includes('summary')) return { ok: true, json: async () => ({ domains: 0, certificates: 0, connections: 0, stale_assets: 0 }) }
+      if (url.includes('/domains?')) return { ok: true, json: async () => ({ items: [], total: 0 }) }
+      return { ok: true, json: async () => ({ items: [] }) }
+    }
+    render(<App fetcher={fetcher} />)
+    await waitFor(() => expect(screen.getByText('Certificate and domain inventory')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Domain inventory'))
+    fireEvent.click(screen.getByText('Add domain'))
+    fireEvent.change(screen.getByPlaceholderText('Domain name (required)'), { target: { value: 'manual.example' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(calls.some(({ url, options }) => url === '/api/v1/domains' && options.method === 'POST' && JSON.parse(options.body).name === 'manual.example')).toBe(true))
+  })
 })

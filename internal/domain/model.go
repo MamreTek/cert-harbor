@@ -4,6 +4,7 @@ import "time"
 
 type Domain struct {
 	ID                string     `json:"id"`
+	ManagedBy         string     `json:"managed_by,omitempty"`
 	ConnectionID      string     `json:"connection_id"`
 	Provider          string     `json:"provider"`
 	SourceID          string     `json:"source_id"`
@@ -26,6 +27,7 @@ type Domain struct {
 
 type Certificate struct {
 	ID              string    `json:"id"`
+	ManagedBy       string    `json:"managed_by,omitempty"`
 	ConnectionID    string    `json:"connection_id"`
 	Provider        string    `json:"provider"`
 	SourceID        string    `json:"source_id"`

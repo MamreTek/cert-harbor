@@ -497,18 +497,166 @@ func (s *Store) ReplaceAssets(connectionID string, syncedAt time.Time, domains [
 		s.certificates[item.ID] = item
 	}
 	for id, item := range s.domains {
-		if item.ConnectionID == connectionID && !domainIDs[id] {
+		if item.ConnectionID == connectionID && item.ManagedBy != "manual" && !domainIDs[id] {
 			item.Stale = true
 			s.domains[id] = item
 		}
 	}
 	for id, item := range s.certificates {
-		if item.ConnectionID == connectionID && !certificateIDs[id] {
+		if item.ConnectionID == connectionID && item.ManagedBy != "manual" && !certificateIDs[id] {
 			item.Stale = true
 			s.certificates[id] = item
 		}
 	}
 	_ = syncedAt
+	return s.persistLocked()
+}
+
+func (s *Store) AddDomain(item domain.Domain) error {
+	if item.ID == "" || strings.TrimSpace(item.Name) == "" {
+		return errors.New("domain id and name are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.domains[item.ID]; exists {
+		return errors.New("domain already exists")
+	}
+	item.ManagedBy = "manual"
+	item.ConnectionID = ""
+	if item.Provider == "" {
+		item.Provider = "manual"
+	}
+	if item.SourceID == "" {
+		item.SourceID = item.ID
+	}
+	if item.LastSeenAt.IsZero() {
+		item.LastSeenAt = time.Now().UTC()
+	}
+	item.Stale = false
+	s.domains[item.ID] = item
+	return s.persistLocked()
+}
+
+func (s *Store) UpdateDomain(id string, item domain.Domain) (domain.Domain, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.domains[id]
+	if !ok {
+		return domain.Domain{}, errors.New("domain not found")
+	}
+	if existing.ManagedBy != "manual" {
+		return domain.Domain{}, errors.New("provider-managed domain is read-only")
+	}
+	if strings.TrimSpace(item.Name) == "" {
+		return domain.Domain{}, errors.New("domain name is required")
+	}
+	item.ID = id
+	item.ManagedBy = "manual"
+	item.ConnectionID = ""
+	if item.Provider == "" {
+		item.Provider = "manual"
+	}
+	if item.SourceID == "" {
+		item.SourceID = existing.SourceID
+	}
+	if item.LastSeenAt.IsZero() {
+		item.LastSeenAt = time.Now().UTC()
+	}
+	s.domains[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Domain{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) DeleteDomain(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.domains[id]
+	if !ok {
+		return errors.New("domain not found")
+	}
+	if item.ManagedBy != "manual" {
+		return errors.New("provider-managed domain is read-only")
+	}
+	delete(s.domains, id)
+	return s.persistLocked()
+}
+
+func (s *Store) AddCertificate(item domain.Certificate) error {
+	if item.ID == "" || strings.TrimSpace(item.CommonName) == "" {
+		return errors.New("certificate id and common_name are required")
+	}
+	if !item.ValidFrom.IsZero() && !item.ValidTo.IsZero() && item.ValidTo.Before(item.ValidFrom) {
+		return errors.New("valid_to must not be before valid_from")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.certificates[item.ID]; exists {
+		return errors.New("certificate already exists")
+	}
+	item.ManagedBy = "manual"
+	item.ConnectionID = ""
+	if item.Provider == "" {
+		item.Provider = "manual"
+	}
+	if item.SourceID == "" {
+		item.SourceID = item.ID
+	}
+	if item.LastSeenAt.IsZero() {
+		item.LastSeenAt = time.Now().UTC()
+	}
+	item.Stale = false
+	s.certificates[item.ID] = item
+	return s.persistLocked()
+}
+
+func (s *Store) UpdateCertificate(id string, item domain.Certificate) (domain.Certificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.certificates[id]
+	if !ok {
+		return domain.Certificate{}, errors.New("certificate not found")
+	}
+	if existing.ManagedBy != "manual" {
+		return domain.Certificate{}, errors.New("provider-managed certificate is read-only")
+	}
+	if strings.TrimSpace(item.CommonName) == "" {
+		return domain.Certificate{}, errors.New("certificate common_name is required")
+	}
+	if !item.ValidFrom.IsZero() && !item.ValidTo.IsZero() && item.ValidTo.Before(item.ValidFrom) {
+		return domain.Certificate{}, errors.New("valid_to must not be before valid_from")
+	}
+	item.ID = id
+	item.ManagedBy = "manual"
+	item.ConnectionID = ""
+	if item.Provider == "" {
+		item.Provider = "manual"
+	}
+	if item.SourceID == "" {
+		item.SourceID = existing.SourceID
+	}
+	if item.LastSeenAt.IsZero() {
+		item.LastSeenAt = time.Now().UTC()
+	}
+	s.certificates[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Certificate{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) DeleteCertificate(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.certificates[id]
+	if !ok {
+		return errors.New("certificate not found")
+	}
+	if item.ManagedBy != "manual" {
+		return errors.New("provider-managed certificate is read-only")
+	}
+	delete(s.certificates, id)
 	return s.persistLocked()
 }
 

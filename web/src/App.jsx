@@ -39,6 +39,7 @@ const formatTimestamp = (value, timeZone) => {
 export function App({ fetcher = defaultFetcher }) {
   const [summary, setSummary] = useState(emptySummary)
   const [connections, setConnections] = useState([])
+  const [providers, setProviders] = useState([])
   const [domains, setDomains] = useState([])
   const [certificates, setCertificates] = useState([])
   const [domainPage, setDomainPage] = useState(1)
@@ -101,6 +102,7 @@ export function App({ fetcher = defaultFetcher }) {
       const responses = await Promise.all([
         requester('/api/v1/catalog/summary'),
         requester('/api/v1/provider-connections?page=1&page_size=50'),
+        requester('/api/v1/providers'),
         requester(`/api/v1/domains?page=${domainPage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
         requester(`/api/v1/certificates?page=${certificatePage}&page_size=20${filterQuery ? `&${filterQuery}` : ''}`),
         requester(`/api/v1/alerts?page=${alertPage}&page_size=20${alertFilterQuery ? `&${alertFilterQuery}` : ''}`),
@@ -112,9 +114,10 @@ export function App({ fetcher = defaultFetcher }) {
         requester(`/api/v1/notification-deliveries?page=${deliveryPage}&page_size=20`),
       ])
       if (responses.some((response) => !response.ok)) throw new Error('The inventory API returned an error.')
-      const [nextSummary, nextConnections, nextDomains, nextCertificates, nextAlerts, nextRules, nextMembers, nextChannels, nextSyncRuns, nextAuditEvents, nextDeliveries] = await Promise.all(responses.map((response) => response.json()))
+      const [nextSummary, nextConnections, nextProviders, nextDomains, nextCertificates, nextAlerts, nextRules, nextMembers, nextChannels, nextSyncRuns, nextAuditEvents, nextDeliveries] = await Promise.all(responses.map((response) => response.json()))
       setSummary({ ...emptySummary, ...nextSummary })
       setConnections(nextConnections.items ?? [])
+      setProviders(nextProviders.items ?? [])
       setDomains(nextDomains.items ?? [])
       setCertificates(nextCertificates.items ?? [])
       setDomainTotal(nextDomains.total ?? nextDomains.items?.length ?? 0)
@@ -239,6 +242,7 @@ export function App({ fetcher = defaultFetcher }) {
     setModalKind(kind)
     setEditingId(item.id || '')
     setModalValues({
+      id: item.id || '',
       enabled: item.enabled ?? true,
       role: item.role || 'viewer',
       status: item.status || 'active',
@@ -252,6 +256,26 @@ export function App({ fetcher = defaultFetcher }) {
       stale_after_hours: String(item.stale_after_hours || 26),
       asset_types: (item.asset_types || []).join(','),
       tags: (item.tags || []).join(','),
+      common_name: item.common_name || '',
+      sans: (item.sans || []).join(','),
+      valid_from: item.valid_from || '',
+      valid_to: item.valid_to || '',
+      issuer: item.issuer || '',
+      certificate_type: item.certificate_type || '',
+      linked_domains: (item.linked_domains || []).join(','),
+      fingerprint: item.fingerprint || '',
+      serial_number: item.serial_number || '',
+      source_id: item.source_id || '',
+      registrable_domain: item.registrable_domain || '',
+      zone: item.zone || '',
+      registrar: item.registrar || '',
+      nameservers: (item.nameservers || []).join(','),
+      expires_at: item.expires_at || '',
+      source_url: item.source_url || '',
+      owner: item.owner || '',
+      environment: item.environment || '',
+      region: item.region || '',
+      notes: item.notes || '',
     })
   }
 
@@ -295,6 +319,12 @@ export function App({ fetcher = defaultFetcher }) {
       } else if (modalKind === 'rule') {
         url = editingId ? `/api/v1/alert-rules/${editingId}` : '/api/v1/alert-rules'
         payload = { name: modalValues.name, domain_thresholds: String(modalValues.domain_thresholds).split(',').map(Number).filter(Number.isFinite), certificate_thresholds: String(modalValues.certificate_thresholds).split(',').map(Number).filter(Number.isFinite), stale_after_hours: Number(modalValues.stale_after_hours), asset_types: modalValues.asset_types ? String(modalValues.asset_types).split(',').map((value) => value.trim()).filter(Boolean) : [], tags: modalValues.tags ? String(modalValues.tags).split(',').map((value) => value.trim()).filter(Boolean) : [] }
+      } else if (modalKind === 'domain') {
+        url = editingId ? `/api/v1/domains/${editingId}` : '/api/v1/domains'
+        payload = { id: modalValues.id, name: modalValues.name, provider: modalValues.provider, source_id: modalValues.source_id, registrable_domain: modalValues.registrable_domain, zone: modalValues.zone, registrar: modalValues.registrar, status: modalValues.status, nameservers: String(modalValues.nameservers || '').split(',').map((value) => value.trim()).filter(Boolean), expires_at: modalValues.expires_at, owner: modalValues.owner, environment: modalValues.environment, tags: String(modalValues.tags || '').split(',').map((value) => value.trim()).filter(Boolean), notes: modalValues.notes, source_url: modalValues.source_url }
+      } else if (modalKind === 'certificate') {
+        url = editingId ? `/api/v1/certificates/${editingId}` : '/api/v1/certificates'
+        payload = { id: modalValues.id, common_name: modalValues.common_name, provider: modalValues.provider, source_id: modalValues.source_id, sans: String(modalValues.sans || '').split(',').map((value) => value.trim()).filter(Boolean), issuer: modalValues.issuer, status: modalValues.status, serial_number: modalValues.serial_number, fingerprint: modalValues.fingerprint, certificate_type: modalValues.certificate_type, linked_domains: String(modalValues.linked_domains || '').split(',').map((value) => value.trim()).filter(Boolean), valid_from: modalValues.valid_from, valid_to: modalValues.valid_to, region: modalValues.region, owner: modalValues.owner, environment: modalValues.environment, tags: String(modalValues.tags || '').split(',').map((value) => value.trim()).filter(Boolean), notes: modalValues.notes, source_url: modalValues.source_url }
       }
       const response = await requester(url, { method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (!response.ok) {
@@ -363,7 +393,7 @@ export function App({ fetcher = defaultFetcher }) {
 
   const renderInventoryFilters = () => <Space wrap className="inventory-filters">
     <Input.Search placeholder="Search inventory" allowClear onSearch={(value) => setInventoryFilters((current) => ({ ...current, search: value }))} onChange={(event) => { if (!event.target.value) setInventoryFilters((current) => ({ ...current, search: '' })) }} />
-    <Select allowClear placeholder="Provider" style={{ minWidth: 150 }} value={inventoryFilters.provider || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, provider: value || '' }))} options={connections.map((item) => ({ value: item.provider, label: item.provider }))} />
+    <Select allowClear placeholder="Provider" style={{ minWidth: 150 }} value={inventoryFilters.provider || undefined} onChange={(value) => setInventoryFilters((current) => ({ ...current, provider: value || '' }))} options={[...providers.map((item) => ({ value: item.id, label: item.name })), { value: 'manual', label: 'Manual' }]} />
     <Input placeholder="Owner / team" allowClear value={inventoryFilters.owner} onChange={(event) => setInventoryFilters((current) => ({ ...current, owner: event.target.value }))} />
     <Input placeholder="Environment" allowClear value={inventoryFilters.environment} onChange={(event) => setInventoryFilters((current) => ({ ...current, environment: event.target.value }))} />
     <Input placeholder="Tag" allowClear value={inventoryFilters.tag} onChange={(event) => setInventoryFilters((current) => ({ ...current, tag: event.target.value }))} />
@@ -395,7 +425,7 @@ export function App({ fetcher = defaultFetcher }) {
     </Card>
   </>
 
-  const renderDomains = () => <Card title="Domains" extra={<Space wrap>{renderInventoryFilters()}<Button onClick={() => exportInventory('domains')}>Export CSV</Button></Space>}>
+  const renderDomains = () => <Card title="Domains" extra={<Space wrap>{renderInventoryFilters()}<Button onClick={() => openModal('domain')}>Add domain</Button><Button onClick={() => exportInventory('domains')}>Export CSV</Button></Space>}>
     <Table rowKey="id" dataSource={domains} pagination={{ current: domainPage, pageSize: 20, total: domainTotal, showSizeChanger: false, onChange: setDomainPage }} locale={{ emptyText: 'No domains synchronized yet' }} columns={[
       { title: 'Domain', dataIndex: 'name', key: 'name' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
@@ -404,11 +434,12 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Nameservers', dataIndex: 'nameservers', key: 'nameservers', render: (value) => (value ?? []).join(', ') || 'Unknown' },
       { title: 'Last seen', dataIndex: 'last_seen_at', key: 'last_seen_at', render: (value) => formatTimestamp(value, timeZone) },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
-      { title: 'Details', render: (_, item) => <Button size="small" onClick={() => openDetail('Domain', item)}>View</Button> },
+      { title: 'Source', dataIndex: 'managed_by', key: 'managed_by', render: (value) => <Tag color={value === 'manual' ? 'blue' : 'default'}>{value === 'manual' ? 'Manual' : 'Provider'}</Tag> },
+      { title: 'Details', render: (_, item) => <Space><Button size="small" onClick={() => openDetail('Domain', item)}>View</Button>{item.managed_by === 'manual' && <><Button size="small" onClick={() => openModal('domain', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/domains/${item.id}`, 'Delete this manual domain?')}>Delete</Button></>}</Space> },
     ]} />
   </Card>
 
-  const renderCertificates = () => <Card title="Certificates" extra={<Space wrap>{renderInventoryFilters()}<Button onClick={() => exportInventory('certificates')}>Export CSV</Button></Space>}>
+  const renderCertificates = () => <Card title="Certificates" extra={<Space wrap>{renderInventoryFilters()}<Button onClick={() => openModal('certificate')}>Add certificate</Button><Button onClick={() => exportInventory('certificates')}>Export CSV</Button></Space>}>
     <Table rowKey="id" dataSource={certificates} pagination={{ current: certificatePage, pageSize: 20, total: certificateTotal, showSizeChanger: false, onChange: setCertificatePage }} locale={{ emptyText: 'No certificates synchronized yet' }} columns={[
       { title: 'Common name', dataIndex: 'common_name', key: 'common_name' },
       { title: 'Issuer', dataIndex: 'issuer', key: 'issuer', render: (value) => value || 'Unknown' },
@@ -418,7 +449,8 @@ export function App({ fetcher = defaultFetcher }) {
       { title: 'Region', dataIndex: 'region', key: 'region', render: (value) => value || '—' },
       { title: 'Provider', dataIndex: 'provider', key: 'provider' },
       { title: 'Freshness', dataIndex: 'stale', key: 'stale', render: (value) => <Tag color={value ? 'orange' : 'green'}>{value ? 'Stale' : 'Current'}</Tag> },
-      { title: 'Details', render: (_, item) => <Button size="small" onClick={() => openDetail('Certificate', item)}>View</Button> },
+      { title: 'Source', dataIndex: 'managed_by', key: 'managed_by', render: (value) => <Tag color={value === 'manual' ? 'blue' : 'default'}>{value === 'manual' ? 'Manual' : 'Provider'}</Tag> },
+      { title: 'Details', render: (_, item) => <Space><Button size="small" onClick={() => openDetail('Certificate', item)}>View</Button>{item.managed_by === 'manual' && <><Button size="small" onClick={() => openModal('certificate', item)}>Edit</Button><Button size="small" danger onClick={() => deleteResource(`/api/v1/certificates/${item.id}`, 'Delete this manual certificate?')}>Delete</Button></>}</Space> },
     ]} />
   </Card>
 
@@ -505,11 +537,13 @@ export function App({ fetcher = defaultFetcher }) {
           </>}
         </Content>
       </Layout>
-      <Modal open={Boolean(modalKind)} title={`${editingId ? 'Edit' : 'Add'} ${{ connection: 'provider connection', member: 'workspace member', channel: 'notification channel', rule: 'alert rule' }[modalKind] || ''}`} onCancel={closeModal} onOk={submitModal} okText="Save">
-        {modalKind === 'connection' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Provider" disabled={Boolean(editingId)} value={modalValues.provider || undefined} style={{ width: '100%' }} onChange={(value) => updateModalValue('provider', value)} options={['alibaba_cloud', 'tencent', 'aws', 'cloudflare'].map((value) => ({ value, label: value }))} /><Input placeholder="Sync interval, e.g. 24h" value={modalValues.sync_interval} onChange={(event) => updateModalValue('sync_interval', event.target.value)} /><Select placeholder="Enabled" value={modalValues.enabled} style={{ width: '100%' }} onChange={(value) => updateModalValue('enabled', value)} options={[{ value: true, label: 'Enabled' }, { value: false, label: 'Disabled' }]} /><Input.TextArea placeholder='Credentials JSON (optional; never returned when editing)' value={modalValues.credentials || ''} onChange={(event) => updateModalValue('credentials', event.target.value)} /></Space>}
+      <Modal open={Boolean(modalKind)} title={`${editingId ? 'Edit' : 'Add'} ${{ connection: 'provider connection', member: 'workspace member', channel: 'notification channel', rule: 'alert rule', domain: 'manual domain', certificate: 'manual certificate' }[modalKind] || ''}`} onCancel={closeModal} onOk={submitModal} okText="Save">
+        {modalKind === 'connection' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Provider" disabled={Boolean(editingId)} value={modalValues.provider || undefined} style={{ width: '100%' }} onChange={(value) => updateModalValue('provider', value)} options={providers.filter((item) => item.enabled).map((item) => ({ value: item.id, label: item.name }))} /><Input placeholder="Sync interval, e.g. 24h" value={modalValues.sync_interval} onChange={(event) => updateModalValue('sync_interval', event.target.value)} /><Select placeholder="Enabled" value={modalValues.enabled} style={{ width: '100%' }} onChange={(value) => updateModalValue('enabled', value)} options={[{ value: true, label: 'Enabled' }, { value: false, label: 'Disabled' }]} /><Input.TextArea placeholder='Credentials JSON (optional; never returned when editing)' value={modalValues.credentials || ''} onChange={(event) => updateModalValue('credentials', event.target.value)} /></Space>}
         {modalKind === 'member' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Email" disabled={Boolean(editingId)} value={modalValues.email || ''} onChange={(event) => updateModalValue('email', event.target.value)} /><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Role" value={modalValues.role} style={{ width: '100%' }} onChange={(value) => updateModalValue('role', value)} options={[{ value: 'viewer', label: 'Viewer' }, { value: 'administrator', label: 'Administrator' }]} /><Select placeholder="Status" value={modalValues.status} style={{ width: '100%' }} onChange={(value) => updateModalValue('status', value)} options={[{ value: 'active', label: 'Active' }, { value: 'invited', label: 'Invited' }, { value: 'suspended', label: 'Suspended' }]} /></Space>}
         {modalKind === 'channel' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Select placeholder="Kind" disabled={Boolean(editingId)} value={modalValues.kind} style={{ width: '100%' }} onChange={(value) => updateModalValue('kind', value)} options={[{ value: 'webhook', label: 'Webhook' }, { value: 'email', label: 'Email' }]} /><Input placeholder="Endpoint" value={modalValues.endpoint} onChange={(event) => updateModalValue('endpoint', event.target.value)} /><Select placeholder="Enabled" value={modalValues.enabled} style={{ width: '100%' }} onChange={(value) => updateModalValue('enabled', value)} options={[{ value: true, label: 'Enabled' }, { value: false, label: 'Disabled' }]} /><Input.Password placeholder="Signing secret (optional; never returned when editing)" value={modalValues.signing_secret || ''} onChange={(event) => updateModalValue('signing_secret', event.target.value)} /><Input.TextArea placeholder='Credentials JSON (email username/password/from/to)' value={modalValues.credentials || ''} onChange={(event) => updateModalValue('credentials', event.target.value)} /></Space>}
         {modalKind === 'rule' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Name" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Input placeholder="Asset types: domain,certificate,connection (optional)" value={modalValues.asset_types} onChange={(event) => updateModalValue('asset_types', event.target.value)} /><Input placeholder="Domain thresholds: 90,30,14,7,3" value={modalValues.domain_thresholds} onChange={(event) => updateModalValue('domain_thresholds', event.target.value)} /><Input placeholder="Certificate thresholds: 90,30,14,7,3" value={modalValues.certificate_thresholds} onChange={(event) => updateModalValue('certificate_thresholds', event.target.value)} /><Input placeholder="Stale after hours" value={modalValues.stale_after_hours} onChange={(event) => updateModalValue('stale_after_hours', event.target.value)} /><Input placeholder="Tags (comma-separated, optional)" value={modalValues.tags} onChange={(event) => updateModalValue('tags', event.target.value)} /></Space>}
+        {modalKind === 'domain' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Domain name (required)" value={modalValues.name} onChange={(event) => updateModalValue('name', event.target.value)} /><Input placeholder="Provider label (optional; defaults to manual)" value={modalValues.provider} onChange={(event) => updateModalValue('provider', event.target.value)} /><Input placeholder="Registrable domain" value={modalValues.registrable_domain} onChange={(event) => updateModalValue('registrable_domain', event.target.value)} /><Input placeholder="DNS zone" value={modalValues.zone} onChange={(event) => updateModalValue('zone', event.target.value)} /><Input placeholder="Registrar" value={modalValues.registrar} onChange={(event) => updateModalValue('registrar', event.target.value)} /><Input placeholder="Nameservers (comma-separated)" value={modalValues.nameservers} onChange={(event) => updateModalValue('nameservers', event.target.value)} /><Input placeholder="Expires at (RFC3339, optional)" value={modalValues.expires_at} onChange={(event) => updateModalValue('expires_at', event.target.value)} /><Input placeholder="Owner / team" value={modalValues.owner} onChange={(event) => updateModalValue('owner', event.target.value)} /><Input placeholder="Environment" value={modalValues.environment} onChange={(event) => updateModalValue('environment', event.target.value)} /><Input placeholder="Tags (comma-separated)" value={modalValues.tags} onChange={(event) => updateModalValue('tags', event.target.value)} /><Input.TextArea placeholder="Notes" value={modalValues.notes} onChange={(event) => updateModalValue('notes', event.target.value)} /></Space>}
+        {modalKind === 'certificate' && <Space direction="vertical" style={{ width: '100%' }}><Input placeholder="Common name (required)" value={modalValues.common_name} onChange={(event) => updateModalValue('common_name', event.target.value)} /><Input placeholder="SANs (comma-separated)" value={modalValues.sans} onChange={(event) => updateModalValue('sans', event.target.value)} /><Input placeholder="Issuer" value={modalValues.issuer} onChange={(event) => updateModalValue('issuer', event.target.value)} /><Input placeholder="Status" value={modalValues.status} onChange={(event) => updateModalValue('status', event.target.value)} /><Input placeholder="Certificate type" value={modalValues.certificate_type} onChange={(event) => updateModalValue('certificate_type', event.target.value)} /><Input placeholder="Valid from (RFC3339, optional)" value={modalValues.valid_from} onChange={(event) => updateModalValue('valid_from', event.target.value)} /><Input placeholder="Valid to (RFC3339, optional)" value={modalValues.valid_to} onChange={(event) => updateModalValue('valid_to', event.target.value)} /><Input placeholder="Linked domains (comma-separated)" value={modalValues.linked_domains} onChange={(event) => updateModalValue('linked_domains', event.target.value)} /><Input placeholder="Region" value={modalValues.region} onChange={(event) => updateModalValue('region', event.target.value)} /><Input placeholder="Owner / team" value={modalValues.owner} onChange={(event) => updateModalValue('owner', event.target.value)} /><Input placeholder="Environment" value={modalValues.environment} onChange={(event) => updateModalValue('environment', event.target.value)} /><Input placeholder="Tags (comma-separated)" value={modalValues.tags} onChange={(event) => updateModalValue('tags', event.target.value)} /><Input.TextArea placeholder="Notes" value={modalValues.notes} onChange={(event) => updateModalValue('notes', event.target.value)} /></Space>}
       </Modal>
       <Modal open={Boolean(detailItem)} title={`${detailKind} details`} footer={null} onCancel={() => { setDetailItem(null); setDetailKind('') }}>
         {detailItem && <Descriptions bordered column={1} size="small">

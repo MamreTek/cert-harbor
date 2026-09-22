@@ -48,6 +48,32 @@ func TestOpenStoreRestoresCatalogAfterRestart(t *testing.T) {
 	}
 }
 
+func TestOpenStoreRestoresManualAssetOrigin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddDomain(domain.Domain{ID: "manual-domain", Name: "manual.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddCertificate(domain.Certificate{ID: "manual-certificate", CommonName: "manual.example", ValidTo: time.Now().UTC().Add(30 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualDomain, ok := reopened.GetDomain("manual-domain")
+	if !ok || manualDomain.ManagedBy != "manual" || manualDomain.ConnectionID != "" {
+		t.Fatalf("manual domain origin was not restored: %#v", manualDomain)
+	}
+	manualCertificate, ok := reopened.GetCertificate("manual-certificate")
+	if !ok || manualCertificate.ManagedBy != "manual" || manualCertificate.ConnectionID != "" {
+		t.Fatalf("manual certificate origin was not restored: %#v", manualCertificate)
+	}
+}
+
 func TestRotateCredentialsPreservesConnection(t *testing.T) {
 	oldBox, err := security.NewSecretBox("old-key")
 	if err != nil {
