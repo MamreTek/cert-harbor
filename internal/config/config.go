@@ -1,0 +1,81 @@
+package config
+
+import (
+	"errors"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	Env               string
+	Addr              string
+	AdminToken        string
+	ViewerToken       string
+	EncryptionKey     string
+	OldEncryptionKey  string
+	WebDir            string
+	Demo              bool
+	FixturePath       string
+	DataPath          string
+	AlertsPath        string
+	NotificationsPath string
+	DatabaseURL       string
+	SyncInterval      time.Duration
+}
+
+func FromEnv() Config {
+	return Config{
+		Env:               valueOrDefault("CERT_HARBOR_ENV", "development"),
+		Addr:              valueOrDefault("CERT_HARBOR_ADDR", ":8080"),
+		AdminToken:        os.Getenv("CERT_HARBOR_ADMIN_TOKEN"),
+		ViewerToken:       os.Getenv("CERT_HARBOR_VIEWER_TOKEN"),
+		EncryptionKey:     os.Getenv("CERT_HARBOR_ENCRYPTION_KEY"),
+		OldEncryptionKey:  os.Getenv("CERT_HARBOR_ENCRYPTION_KEY_OLD"),
+		WebDir:            valueOrDefault("CERT_HARBOR_WEB_DIR", "web/dist"),
+		Demo:              boolFromEnv("CERT_HARBOR_DEMO"),
+		FixturePath:       valueOrDefault("CERT_HARBOR_FIXTURE_PATH", "examples/demo-fixture.json"),
+		DataPath:          valueOrDefault("CERT_HARBOR_DATA_PATH", "data/cert-harbor.json"),
+		AlertsPath:        valueOrDefault("CERT_HARBOR_ALERTS_PATH", "data/cert-harbor-alerts.json"),
+		NotificationsPath: valueOrDefault("CERT_HARBOR_NOTIFICATIONS_PATH", "data/cert-harbor-notifications.json"),
+		DatabaseURL:       os.Getenv("CERT_HARBOR_DATABASE_URL"),
+		SyncInterval:      durationFromEnv("CERT_HARBOR_SYNC_INTERVAL", 24*time.Hour),
+	}
+}
+
+func (c Config) Validate() error {
+	if !strings.EqualFold(c.Env, "production") {
+		return nil
+	}
+	if c.EncryptionKey == "" {
+		return errors.New("CERT_HARBOR_ENCRYPTION_KEY is required in production")
+	}
+	if c.AdminToken == "" || c.ViewerToken == "" {
+		return errors.New("CERT_HARBOR_ADMIN_TOKEN and CERT_HARBOR_VIEWER_TOKEN are required in production")
+	}
+	if c.DatabaseURL == "" {
+		return errors.New("CERT_HARBOR_DATABASE_URL is required in production")
+	}
+	return nil
+}
+
+func valueOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func boolFromEnv(name string) bool {
+	value, _ := strconv.ParseBool(os.Getenv(name))
+	return value
+}
+
+func durationFromEnv(name string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(os.Getenv(name))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}

@@ -1,0 +1,6 @@
+.env
+web/node_modules/
+web/dist/
+coverage/
+data/
+*.test

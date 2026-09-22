@@ -1,0 +1,83 @@
+name: CertHarbor CI
+
+on:
+  push:
+    branches: [main, "issue/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cert_harbor
+          POSTGRES_USER: cert_harbor
+          POSTGRES_PASSWORD: cert_harbor_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cert_harbor -d cert_harbor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --prefix web
+
+      - name: Run unit, lint, web, build, and Compose contract checks
+        run: make test
+
+      - name: Run PostgreSQL integration test
+        env:
+          CERT_HARBOR_TEST_DATABASE_URL: postgres://cert_harbor:cert_harbor_ci@127.0.0.1:5432/cert_harbor?sslmode=disable
+        run: go test ./internal/catalog -run TestPostgresCatalogRoundTrip -count=1
+
+      - name: Run packaged Compose smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker compose down -v
+          }
+          trap cleanup EXIT
+
+          CERT_HARBOR_DEMO=1 docker compose up --build -d
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/healthz; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$healthy" -ne 1 ]; then
+            docker compose logs
+            exit 1
+          fi
+          curl --fail --silent --show-error http://127.0.0.1:8080/readyz
+          curl --fail --silent --show-error -X POST http://127.0.0.1:8080/api/v1/provider-connections/demo-cloudflare/sync
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/v1/domains | grep -q 'example.com'
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/v1/certificates | grep -q 'cert-demo-example'
+          curl --fail --silent --show-error http://127.0.0.1:8080/metrics | grep -q 'certharbor_sync_runs_total 1'

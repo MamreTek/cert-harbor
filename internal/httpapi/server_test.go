@@ -1,0 +1,476 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	alerting "github.com/MamreTek/cert-harbor/internal/alerts"
+	"github.com/MamreTek/cert-harbor/internal/catalog"
+	"github.com/MamreTek/cert-harbor/internal/config"
+	"github.com/MamreTek/cert-harbor/internal/domain"
+	"github.com/MamreTek/cert-harbor/internal/notifications"
+	"github.com/MamreTek/cert-harbor/internal/providers"
+	"github.com/MamreTek/cert-harbor/internal/providers/registry"
+	"github.com/MamreTek/cert-harbor/internal/security"
+	"github.com/MamreTek/cert-harbor/internal/syncer"
+)
+
+func TestHealthAndReadinessEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+
+	for _, test := range []struct {
+		path string
+		want int
+	}{
+		{path: "/healthz", want: http.StatusOK},
+		{path: "/readyz", want: http.StatusOK},
+		{path: "/metrics", want: http.StatusOK},
+		{path: "/api/v1/meta", want: http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodGet, test.path, nil)
+		res := httptest.NewRecorder()
+		server.Handler().ServeHTTP(res, req)
+		if res.Code != test.want {
+			t.Errorf("GET %s status = %d, want %d", test.path, res.Code, test.want)
+		}
+	}
+}
+
+func TestCountOpenAlertsExcludesResolvedAndSuppressed(t *testing.T) {
+	items := []alerting.Alert{
+		{State: alerting.StateOpen},
+		{State: alerting.StateAcknowledged},
+		{State: alerting.StateSuppressed},
+		{State: alerting.StateResolved},
+	}
+	if got := countOpenAlerts(items); got != 2 {
+		t.Fatalf("countOpenAlerts() = %d, want 2", got)
+	}
+}
+
+func TestReadinessRejectsIncompleteProductionConfig(t *testing.T) {
+	server := NewServer(config.Config{Env: "production"})
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	res := httptest.NewRecorder()
+	server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET /readyz status = %d, want %d", res.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestViewerCanReadButCannotMutate(t *testing.T) {
+	server := NewServer(config.Config{Env: "production", AdminToken: "admin-secret", ViewerToken: "viewer-secret", EncryptionKey: "encryption-key"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated read status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	request.Header.Set("Authorization", "Bearer viewer-secret")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("viewer read status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/monitor/evaluate", nil)
+	request.Header.Set("X-CertHarbor-Token", "viewer-secret")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("viewer mutation status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/monitor/evaluate", nil)
+	request.Header.Set("X-CertHarbor-Token", "admin-secret")
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("administrator mutation status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
+func TestConnectionCredentialsAreEncryptedAndNeverReturned(t *testing.T) {
+	server := NewServer(config.Config{Env: "development", EncryptionKey: "test-encryption-key"})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections", strings.NewReader(`{"name":"Cloudflare Production","provider":"cloudflare","credentials":{"token":"provider-secret"}}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create connection status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "provider-secret") || !strings.Contains(response.Body.String(), "credentials_stored") {
+		t.Fatalf("connection response exposed credentials: %s", response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/provider-connections", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "provider-secret") {
+		t.Fatalf("connection listing exposed credentials: %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/provider-connections/cloudflare-production", strings.NewReader(`{"enabled":false}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"enabled":false`) {
+		t.Fatalf("disable connection response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit-events?page=1&page_size=20", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "provider_connection.create") || strings.Contains(response.Body.String(), "provider-secret") {
+		t.Fatalf("audit response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestProviderCatalogAndManualAssetCRUD(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/providers", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "cloudflare") || !strings.Contains(response.Body.String(), "credential_guidance") {
+		t.Fatalf("provider catalog response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"manual.example","owner":"platform","tags":["local"]}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"managed_by":"manual"`) {
+		t.Fatalf("manual domain create response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/domains/manual-domain-manual-example", strings.NewReader(`{"name":"edited.example"}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "edited.example") {
+		t.Fatalf("manual domain update response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/certificates", strings.NewReader(`{"common_name":"manual.example","valid_from":"2026-01-01T00:00:00Z","valid_to":"2027-01-01T00:00:00Z","sans":["www.manual.example"]}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"managed_by":"manual"`) {
+		t.Fatalf("manual certificate create response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/domains/manual-domain-manual-example", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("manual domain delete response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/domains/provider-domain", strings.NewReader(`{"name":"blocked.example"}`))
+	response = httptest.NewRecorder()
+	server.store.ReplaceAssets("provider-1", time.Now().UTC(), []domain.Domain{{ID: "provider-domain", ConnectionID: "provider-1", ManagedBy: "provider", Name: "provider.example"}}, nil)
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("provider domain mutation status = %d body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestNotificationChannelAndDeliveryEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development", EncryptionKey: "test-encryption-key"})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels", strings.NewReader(`{"name":"Ops webhook","kind":"webhook","endpoint":"https://example.test/hooks","signing_secret":"notification-secret"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || strings.Contains(response.Body.String(), "notification-secret") || !strings.Contains(response.Body.String(), "credentials_stored") {
+		t.Fatalf("create notification channel response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/notification-channels", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "notification-secret") {
+		t.Fatalf("list notification channels response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels/ops-webhook/test", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("failed notification test status = %d body = %s", response.Code, response.Body.String())
+	}
+	var failedTest struct {
+		Delivery notifications.Delivery `json:"delivery"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &failedTest); err != nil || failedTest.Delivery.CorrelationID == "" {
+		t.Fatalf("failed notification test did not return a correlation ID: %s", response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/audit-events", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "notification_channel.create") {
+		t.Fatalf("notification audit response = %d %s", response.Code, response.Body.String())
+	}
+	auditMatched := false
+	var auditPage struct {
+		Items []catalog.AuditEvent `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &auditPage); err == nil {
+		for _, event := range auditPage.Items {
+			if event.Action == "notification_channel.test" && event.CorrelationID == failedTest.Delivery.CorrelationID {
+				auditMatched = true
+				break
+			}
+		}
+	}
+	if !auditMatched {
+		t.Fatalf("notification test correlation was not audited: delivery=%#v body=%s", failedTest.Delivery, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/notification-deliveries?alert_id=test-alert&page=1&page_size=20", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	var filteredDeliveries struct {
+		Items []notifications.Delivery `json:"items"`
+		Total int                      `json:"total"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &filteredDeliveries) != nil || filteredDeliveries.Total != 1 || len(filteredDeliveries.Items) != 1 || filteredDeliveries.Items[0].AlertID != "test-alert" {
+		t.Fatalf("filtered notification deliveries = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestWorkspaceMemberManagementEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"default"`) {
+		t.Fatalf("workspace response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/members", strings.NewReader(`{"email":"alice@example.com","name":"Alice","role":"viewer"}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"role":"viewer"`) || !strings.Contains(response.Body.String(), `"status":"invited"`) {
+		t.Fatalf("create member response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/members/alice-example-com", strings.NewReader(`{"role":"administrator","status":"active"}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"role":"administrator"`) || !strings.Contains(response.Body.String(), `"status":"active"`) {
+		t.Fatalf("update member response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/members/alice-example-com", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete member response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/members/local-admin", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "retain an administrator") {
+		t.Fatalf("last administrator deletion response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAlertRuleManagementEndpoints(t *testing.T) {
+	server := NewServer(config.Config{Env: "development"})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", strings.NewReader(`{"name":"Production certificates","domain_thresholds":[30,7],"certificate_thresholds":[14,3],"stale_after_hours":12,"asset_types":["certificate"],"providers":["cloudflare"]}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), `"id":"production-certificates"`) || !strings.Contains(response.Body.String(), `"asset_types":["certificate"]`) {
+		t.Fatalf("create alert rule response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/alert-rules/production-certificates", strings.NewReader(`{"enabled":false,"stale_after_hours":24}`))
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"enabled":false`) || !strings.Contains(response.Body.String(), `"stale_after_hours":24`) {
+		t.Fatalf("update alert rule response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/alert-rules/production-certificates", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete alert rule response = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSyncAutomaticallyDispatchesOpenAlerts(t *testing.T) {
+	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{ID: "demo-cloudflare", Name: "Demo Cloudflare", Provider: providers.Cloudflare, Enabled: true, FixturePath: fixture}); err != nil {
+		t.Fatal(err)
+	}
+	box, err := security.NewSecretBox("test-encryption-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := box.Encrypt([]byte("webhook-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+	notificationService := notifications.NewService(box)
+	if err := notificationService.AddChannel(notifications.Channel{ID: "ops", Name: "Ops", Kind: notifications.KindWebhook, Endpoint: webhook.URL, Enabled: true, SigningSecretCiphertext: secret}); err != nil {
+		t.Fatal(err)
+	}
+	alerts := alerting.NewEngine(store)
+	server := NewServer(config.Config{Env: "development", FixturePath: fixture, EncryptionKey: "test-encryption-key"}, Dependencies{Store: store, Syncer: syncer.New(store, registry.New(fixture)), Alerts: alerts, Secrets: box, Notifications: notificationService})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections/demo-cloudflare/sync", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || requests == 0 || len(notificationService.Deliveries()) == 0 || notificationService.Deliveries()[0].Status != "delivered" {
+		t.Fatalf("automatic dispatch response=%d requests=%d deliveries=%#v body=%s", response.Code, requests, notificationService.Deliveries(), response.Body.String())
+	}
+	delivery := notificationService.Deliveries()[0]
+	correlationMatched := false
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "notification.delivery" && event.ObjectID == delivery.ID && event.CorrelationID == delivery.CorrelationID {
+			correlationMatched = true
+			break
+		}
+	}
+	if !correlationMatched {
+		t.Fatalf("notification delivery correlation was not audited: delivery=%#v events=%#v", delivery, store.ListAuditEvents())
+	}
+}
+
+func TestSyncAndInventoryEndpoints(t *testing.T) {
+	fixture := filepath.Join("..", "..", "examples", "demo-fixture.json")
+	store := catalog.NewStore()
+	if err := store.AddConnection(catalog.Connection{
+		ID:           "demo-cloudflare",
+		Name:         "Demo Cloudflare",
+		Provider:     providers.Cloudflare,
+		Enabled:      true,
+		Source:       "fixture",
+		FixturePath:  fixture,
+		Capabilities: registry.New(fixture)[providers.Cloudflare].Capabilities(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(config.Config{Env: "development", FixturePath: fixture}, Dependencies{
+		Store:  store,
+		Syncer: syncer.New(store, registry.New(fixture)),
+		Alerts: alerting.NewEngine(store),
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections/demo-cloudflare/sync", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sync status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var syncRun catalog.SyncRun
+	if err := json.Unmarshal(response.Body.Bytes(), &syncRun); err != nil || syncRun.ID == "" {
+		t.Fatalf("sync response = %s", response.Body.String())
+	}
+	auditMatched := false
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "sync.run" && event.ObjectID == syncRun.ConnectionID && event.CorrelationID == syncRun.CorrelationID {
+			auditMatched = true
+			break
+		}
+	}
+	if !auditMatched {
+		t.Fatalf("sync correlation was not audited: run=%#v events=%#v", syncRun, store.ListAuditEvents())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/sync-runs/"+syncRun.ID, nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), syncRun.ID) {
+		t.Fatalf("sync run detail response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/domains?provider=cloudflare&page=1&page_size=10", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("domains status = %d", response.Code)
+	}
+	var body struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || len(body.Items) != 1 || body.Items[0]["source_id"] != "zone-demo-example" || body.Items[0]["expiry_state"] != "healthy" {
+		t.Fatalf("unexpected domain response: %#v", body)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/domains/demo-cloudflare:domain:zone-demo-example", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "zone-demo-example") {
+		t.Fatalf("domain detail response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/certificates/demo-cloudflare:certificate:cert-demo-example", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "cert-demo-example") {
+		t.Fatalf("certificate detail response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/export/certificates.csv?provider=cloudflare", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Type"), "text/csv") || !strings.Contains(response.Body.String(), "cert-demo-example") {
+		t.Fatalf("certificate export response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/provider-connections/demo-cloudflare/test", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() == "" {
+		t.Fatalf("test connection response = %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/monitor/evaluate", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "expiring") {
+		t.Fatalf("evaluate alerts response = %d %s", response.Code, response.Body.String())
+	}
+	var evaluated struct {
+		Items []alerting.Alert `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &evaluated); err != nil || len(evaluated.Items) == 0 {
+		t.Fatalf("evaluate alerts body = %s", response.Body.String())
+	}
+	if evaluated.Items[0].DeepLink == "" || evaluated.Items[0].SourceURL == "" || evaluated.Items[0].Freshness == "" {
+		t.Fatalf("alert context is incomplete: %#v", evaluated.Items[0])
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/alerts/"+evaluated.Items[0].ID, nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), evaluated.Items[0].ID) {
+		t.Fatalf("alert detail status = %d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/alerts/"+evaluated.Items[0].ID+"/events", nil)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	var alertEventPage struct {
+		Items []alerting.Event `json:"items"`
+		Total int              `json:"total"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &alertEventPage) != nil || alertEventPage.Total == 0 || len(alertEventPage.Items) == 0 {
+		t.Fatalf("alert event detail response = %d %s", response.Code, response.Body.String())
+	}
+}

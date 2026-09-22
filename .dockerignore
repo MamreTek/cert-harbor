@@ -1,0 +1,13 @@
+.git
+.github
+.codex
+.env
+.env.*
+data
+coverage
+web/node_modules
+web/dist
+*.test
+*.log
+cert-harbor-catalog.sql
+cert-harbor-data.tgz

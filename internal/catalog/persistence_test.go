@@ -1,0 +1,132 @@
+package catalog
+
+import (
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/MamreTek/cert-harbor/internal/domain"
+	"github.com/MamreTek/cert-harbor/internal/providers"
+	"github.com/MamreTek/cert-harbor/internal/security"
+)
+
+func TestOpenStoreRestoresCatalogAfterRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "catalog.json")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddConnection(Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := store.ReplaceAssets("connection", now, []domain.Domain{{ID: "connection:domain:one", ConnectionID: "connection", Provider: string(providers.Cloudflare), Name: "one.example", LastSeenAt: now}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, total := reopened.ListDomains(Filter{Page: 1, PageSize: 50})
+	if total != 1 || len(items) != 1 || items[0].Name != "one.example" {
+		t.Fatalf("restored catalog = total %d items %#v", total, items)
+	}
+	connections := reopened.ListConnections()
+	if len(connections) != 1 || connections[0].ID != "connection" {
+		t.Fatalf("restored connections = %#v", connections)
+	}
+	if err := store.AddMember(Member{ID: "viewer", Email: "viewer@example.com", Name: "Viewer", Role: "viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err = OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := reopened.ListMembers()
+	if len(members) != 2 || members[0].Email != "admin@localhost" || members[1].Email != "viewer@example.com" {
+		t.Fatalf("restored members = %#v", members)
+	}
+}
+
+func TestOpenStoreRestoresManualAssetOrigin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddDomain(domain.Domain{ID: "manual-domain", Name: "manual.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddCertificate(domain.Certificate{ID: "manual-certificate", CommonName: "manual.example", ValidTo: time.Now().UTC().Add(30 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualDomain, ok := reopened.GetDomain("manual-domain")
+	if !ok || manualDomain.ManagedBy != "manual" || manualDomain.ConnectionID != "" {
+		t.Fatalf("manual domain origin was not restored: %#v", manualDomain)
+	}
+	manualCertificate, ok := reopened.GetCertificate("manual-certificate")
+	if !ok || manualCertificate.ManagedBy != "manual" || manualCertificate.ConnectionID != "" {
+		t.Fatalf("manual certificate origin was not restored: %#v", manualCertificate)
+	}
+}
+
+func TestRotateCredentialsPreservesConnection(t *testing.T) {
+	oldBox, err := security.NewSecretBox("old-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newBox, err := security.NewSecretBox("new-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := oldBox.EncryptMap(map[string]string{"token": "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore()
+	if err := store.AddConnection(Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true, CredentialsCiphertext: ciphertext, CredentialsStored: true}); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := store.RotateCredentials(newBox, oldBox)
+	if err != nil || rotated != 1 {
+		t.Fatalf("rotated=%d err=%v", rotated, err)
+	}
+	connection, _ := store.GetConnection("connection")
+	values, err := newBox.DecryptMap(connection.CredentialsCiphertext)
+	if err != nil || values["token"] != "secret" || !connection.CredentialsStored {
+		t.Fatalf("rotated connection=%#v values=%#v err=%v", connection, values, err)
+	}
+}
+
+func TestOpenStoreRecoversInterruptedSync(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddConnection(Connection{ID: "connection", Name: "Connection", Provider: providers.Cloudflare, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginSync("connection", providers.Cloudflare, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := reopened.ListSyncRuns()
+	if len(runs) != 1 || runs[0].Status != "failed" || runs[0].ErrorSummary == "" {
+		t.Fatalf("recovered sync runs = %#v", runs)
+	}
+	connection, _ := reopened.GetConnection("connection")
+	if connection.Status != "unhealthy" {
+		t.Fatalf("recovered connection status = %#v", connection)
+	}
+}
